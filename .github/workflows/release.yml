@@ -37,12 +37,30 @@ jobs:
         run: ./mvnw -q package -DskipTests
         shell: bash
 
-      - name: jpackage
+      - name: jpackage (Windows)
+        if: matrix.pkg == 'exe'
         run: |
           VER="${GITHUB_REF_NAME#v}"
           VER="${VER:-0.1.0}"
           jpackage \
-            --type ${{ matrix.pkg }} \
+            --type exe \
+            --name SingBoxUI \
+            --app-version "$VER" \
+            --vendor larffxx \
+            --input target \
+            --main-jar singbox-ui.jar \
+            --main-class com.larffxx.singboxui.SingBoxUiApplication \
+            --dest dist \
+            --win-menu --win-shortcut --win-dir-chooser
+        shell: bash
+
+      - name: jpackage (macOS)
+        if: matrix.pkg == 'dmg'
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          VER="${VER:-0.1.0}"
+          jpackage \
+            --type dmg \
             --name SingBoxUI \
             --app-version "$VER" \
             --vendor larffxx \
@@ -51,7 +69,6 @@ jobs:
             --main-class com.larffxx.singboxui.SingBoxUiApplication \
             --dest dist \
             --java-options "-Dapple.awt.UIElement=true" \
-            --win-menu --win-shortcut --win-dir-chooser \
             --mac-package-identifier com.larffxx.singboxui
         shell: bash
 
