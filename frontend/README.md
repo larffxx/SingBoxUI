@@ -16,19 +16,24 @@ ephemeral UI.
 
 ## Commands
 
-| Command                | Purpose                                         |
-| ---------------------- | ----------------------------------------------- |
-| `npm install`          | Install dependencies from `package-lock.json`   |
-| `npm run dev`          | Vite dev server on http://localhost:5173        |
-| `npm run lint`         | ESLint (type-aware)                             |
-| `npm run typecheck`    | `tsc -b`, strict, no emit                       |
-| `npm test`             | Vitest unit/component tests (run once)          |
-| `npm run test:watch`   | Vitest in watch mode                            |
-| `npm run e2e`          | Playwright application-level flows              |
-| `npm run build`        | Production build into `dist/`                   |
-| `npm run format`       | Prettier write                                  |
-| `npm run format:check` | Prettier check                                  |
-| `npm run gen:bindings` | Wails binding placeholder (use `make bindings`) |
+| Command                | Purpose                                          |
+| ---------------------- | ------------------------------------------------ |
+| `npm install`          | Install dependencies from `package-lock.json`    |
+| `npm run dev`          | Vite dev server on http://localhost:5173         |
+| `npm run lint`         | ESLint (type-aware)                              |
+| `npm run typecheck`    | `tsc -b`, strict, no emit                        |
+| `npm test`             | Vitest unit/component tests (run once)           |
+| `npm run test:watch`   | Vitest in watch mode                             |
+| `npm run e2e`          | Playwright application-level flows               |
+| `npm run build`        | Production build into `dist/` (keeps `.gitkeep`) |
+| `npm run format`       | Prettier write                                   |
+| `npm run format:check` | Prettier check                                   |
+| `npm run gen:bindings` | Wails binding placeholder (use `make bindings`)  |
+
+`dist/` also holds a committed `.gitkeep`: the Go side embeds `frontend/dist`, so
+the directory must exist with at least one file for a fresh clone to build. Vite
+empties the directory on every build, and the `postbuild` hook recreates the
+placeholder so a build never stages its deletion.
 
 ## Conventions
 
