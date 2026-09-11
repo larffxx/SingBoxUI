@@ -21,7 +21,7 @@ if not defined JAR (
   exit /b 1
 )
 
-if not defined PORT set PORT=8080
+if not defined PORT set PORT=8000
 
 rem TUN needs Administrator: if config uses tun and we're not elevated - relaunch via UAC.
 if not defined SINGBOXUI_ELEVATED (

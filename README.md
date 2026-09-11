@@ -21,7 +21,7 @@ brew install --cask temurin
 
 # 3. Запуск
 ./run.sh
-# открой http://localhost:8080
+# открой http://localhost:8000
 ```
 
 ### Windows
@@ -35,15 +35,15 @@ mvnw.cmd package
 
 :: 3. Запуск (двойной клик или из cmd)
 run.bat
-:: открой http://localhost:8080
+:: открой http://localhost:8000
 ```
 
 > **Права администратора.** TUN-режим требует рута: `run.sh` сам перезапустится
 > через `sudo` (пароль спросит один раз), `run.bat` покажет UAC-запрос.
 > Если tun в конфиге нет — всё работает из-под обычного пользователя.
 
-Другой порт: `PORT=9090 ./run.sh` или `set PORT=9090 && run.bat`,
-либо `java -jar singbox-ui.jar --server.port=9090`.
+Другой порт: `PORT=8888 ./run.sh` или `set PORT=8888 && run.bat`,
+либо `java -jar singbox-ui.jar --server.port=8888`.
 
 ## sing-box binary (ставить руками не нужно)
 

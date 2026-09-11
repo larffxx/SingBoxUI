@@ -41,7 +41,7 @@ public class TrayService {
     private Thread watcher;
 
     public TrayService(SingBoxProcessService proc, ApplicationContext ctx,
-                       @Value("${server.port:8080}") int port) {
+                       @Value("${server.port:8000}") int port) {
         this.proc = proc;
         this.ctx = ctx;
         this.port = port;

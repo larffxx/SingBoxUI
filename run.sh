@@ -16,7 +16,7 @@ if [ -z "$JAR" ]; then
   exit 1
 fi
 
-PORT="${PORT:-8080}"
+PORT="${PORT:-8000}"
 
 # TUN + auto_route требуют рута: если в конфиге есть tun и мы не root — перезапуск через sudo.
 if [ -z "$SINGBOXUI_ELEVATED" ] && [ -f ./config.json ] \
