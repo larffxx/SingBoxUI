@@ -241,7 +241,7 @@ public class SingBoxProvisioningService {
     }
 
     private Path localBinaryPath() {
-        return Path.of(isWindows() ? "bin/sing-box.exe" : "bin/sing-box");
+        return props.resolveBin(isWindows() ? "sing-box.exe" : "sing-box");
     }
 
     private String sourceOf(String bin) {

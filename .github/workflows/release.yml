@@ -49,7 +49,7 @@ jobs:
             --vendor larffxx \
             --input target \
             --main-jar singbox-ui.jar \
-            --main-class com.larffxx.singboxui.SingBoxUiApplication \
+            --main-class org.springframework.boot.loader.launch.JarLauncher \
             --dest dist \
             --win-menu --win-shortcut --win-dir-chooser
         shell: bash
@@ -69,7 +69,7 @@ jobs:
             --vendor larffxx \
             --input target \
             --main-jar singbox-ui.jar \
-            --main-class com.larffxx.singboxui.SingBoxUiApplication \
+            --main-class org.springframework.boot.loader.launch.JarLauncher \
             --dest dist \
             --java-options "-Dapple.awt.UIElement=true" \
             --mac-package-identifier com.larffxx.singboxui
