@@ -1,121 +1,115 @@
 # SingBoxUI
 
-Веб-интерфейс для настройки [sing-box](https://github.com/sagernet/sing-box) ( universal proxy platform ):
-редактирование `config.json` через формы (inbounds / outbounds / route / DNS),
-правка сырого JSON, импорт share-ссылок (`vless://`, `vmess://`, `trojan://`, `ss://`, `hy2://`, `tuic://`),
-импорт/экспорт конфига файлом, проверка через `sing-box check`.
+Нативное десктопное приложение для настройки и управления
+[sing-box](https://sing-box.sagernet.org/): профили, редактирование конфигурации,
+запуск/остановка ядра, журнал и статистика трафика, обновление бинарника.
 
-Работает на **Windows** и **macOS** — это обычный Spring Boot uber-jar, нужен только Java 17+.
+Это **локальное приложение**, а не веб-панель: у него нет HTTP-сервера, нет
+маршрутов `/api/*`, нет многопользовательского режима. Интерфейс React общается с
+Go-бэкендом исключительно через Wails bindings и события.
+
+Поддерживаются **Windows 10/11**, **macOS Intel**, **macOS Apple Silicon**.
+Linux вне области поддержки.
+
+## Стек
+
+| Слой | Технологии |
+|---|---|
+| Оболочка | Wails v2 (стабильная), Go 1.24+ |
+| Backend | Go, стандартная библиотека, `log/slog`, SQLite, явные пакеты |
+| Frontend | React 18, TypeScript (strict), Vite, TanStack Router/Query, React Hook Form, Zod, Monaco, Tailwind CSS, Radix |
+| Тесты | Go `testing`, Vitest, React Testing Library, Playwright |
+
+Направление зависимостей: React UI → Wails bindings → application use cases →
+domain/ports → {SQLite, адаптер sing-box, адаптеры ОС, файловая система}.
+
+## Требования для разработки
+
+- Go 1.24+ (проверено на 1.27);
+- Node.js 20+ и npm;
+- Wails CLI v2: `go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0`;
+- macOS: Xcode Command Line Tools; Windows: WebView2 (в 10/11 предустановлен).
 
 ## Быстрый старт
 
-### macOS
+```sh
+make deps          # go mod download + npm install в frontend/
+make dev           # hot-reload: Vite + Wails dev-окно
+make check         # go vet, gofmt, staticcheck, eslint, tsc, vitest
+make build         # сборка приложения (+ привилегированный helper)
+```
+
+`make help` печатает все цели. Отдельные шаги:
 
 ```sh
-# 1. Java 17+ (если нет)
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-brew install --cask temurin
-
-# 2. Сборка (или возьми готовый singbox-ui.jar из Releases)
-./mvnw package
-
-# 3. Запуск
-./run.sh
-# открой http://localhost:8000
+make bindings            # перегенерировать Wails bindings в frontend/wailsjs
+make test                # go test — пакеты репозитория (без frontend/node_modules)
+make test-race           # go test -race — то же с детектором гонок
+make frontend-test       # vitest run
+make package-macos       # universal .app → codesign → notarize → .dmg
+make package-windows     # NSIS-установщик + подпись (на Windows)
 ```
 
-### Windows
+Подпись и нотаризация включаются только при наличии секретов
+(`APPLE_*`, `WINDOWS_CERTIFICATE*`); без них собирается неподписанный артефакт.
 
-```bat
-:: 1. Поставь Java 17+ (Temurin): https://adoptium.net/
-::    при установке отметь "Add to PATH"
+## Где приложение хранит данные
 
-:: 2. Сборка (или возьми готовый singbox-ui.jar)
-mvnw.cmd package
+| Платформа | Каталог |
+|---|---|
+| macOS | `~/Library/Application Support/SingBoxUI` |
+| Windows | `%LOCALAPPDATA%\SingBoxUI` |
 
-:: 3. Запуск (двойной клик или из cmd)
-run.bat
-:: открой http://localhost:8000
-```
+Внутри: SQLite-база метаданных, ревизии конфигураций, материализованный активный
+`config.json`, журналы, `bin/<версия>/sing-box` — управляемые версии ядра.
+Автозапуск: `~/Library/LaunchAgents/com.larffxx.singboxui.plist` (macOS),
+раздел `Run` в реестре пользователя (Windows).
 
-> **Права администратора.** TUN-режим требует рута: `run.sh` сам перезапустится
-> через `sudo` (пароль спросит один раз), `run.bat` покажет UAC-запрос.
-> Если tun в конфиге нет — всё работает из-под обычного пользователя.
+## Модель конфигурации
 
-Другой порт: `PORT=8888 ./run.sh` или `set PORT=8888 && run.bat`,
-либо `java -jar singbox-ui.jar --server.port=8888`.
+- **Профиль** — именованный набор параметров; в нём есть черновик и история
+  ревизий.
+- **Черновик** редактируется в UI (структурные формы и/или сырой JSON на Monaco)
+  и проверяется до сохранения.
+- **Ревизия** неизменяема: сохранение создаёт новую, старая остаётся доступной
+  для сравнения и отката.
+- **Применение** записывает конфигурацию атомарно и запускает ядро; неудачный
+  запуск не оставляет систему в нерабочем состоянии — восстанавливается
+  последняя успешно запускавшаяся конфигурация.
 
-## sing-box binary (ставить руками не нужно)
+## Привилегии
 
-Ничего в PATH вписывать не надо: при первом запуске SingBoxUI сам скачает
-подходящий sing-box с GitHub в папку `./bin/` рядом с программой и будет им
-пользоваться (видно во вкладке «Запуск»: версия + откуда взят). Там же кнопка
-«Скачать/Обновить sing-box». Если бинарник уже есть в PATH — подхватится он.
+Процесс SingBoxUI **никогда не запускается с повышенными правами**. Режим TUN
+требует привилегий, поэтому запуск ядра выполняет узкий helper
+(`cmd/singboxui-priv`), который принимает только описанные запросы, и только он
+запрашивает авторизацию у ОС. Логика приложения остаётся в непривилегированном
+процессе.
 
-Вручную — только если хочется свой конкретный:
+## Обновление sing-box
 
-- macOS: `brew install sing-box`
-- Windows: скачай `sing-box-windows-amd64.zip` со страницы
-  [релизов](https://github.com/SagerNet/sing-box/releases), распакуй и добавь папку в PATH
-  (или укажи путь явно — см. ниже).
+Ядро не обновляется молча: релиз выбирается по платформе (stable, pre-release
+исключены), архив проверяется по контрольной сумме, несовпадение или отсутствие
+суммы — отказ, установленная версия при этом не заменяется. Предыдущая рабочая
+версия сохраняется.
 
-Если бинарник называется иначе / лежит не в PATH:
+## Миграция со старой версии
 
-```sh
-java -jar singbox-ui.jar --singbox.binary="C:\tools\sing-box\sing-box.exe"
-java -jar singbox-ui.jar --singbox.binary=/opt/sing-box/sing-box
-```
+Старый прототип (Java/Spring) удалён из репозитория. Его конфигурации не
+теряются: при первом запуске приложение ищет `config.json` в рабочем каталоге и в
+`~/.singboxui`, а также `ui-settings.json`, и предлагает импортировать найденное
+как профиль. Автозапуск, оставшийся от прототипа, распознаётся и удаляется
+отдельным действием в настройках. Правила миграции описаны в
+`docs/architecture/migration-plan.md`.
 
-## Иконка в трее (macOS)
+## Документация
 
-При запуске на Маке в меню-баре появляется круглая иконка SingBoxUI
-(зелёная точка — sing-box запущен, серая — остановлен). Меню: открыть интерфейс
-в браузере, запустить/остановить sing-box, выход. Работает при запуске через
-`run.sh` или `java -jar` в обычной GUI-сессии; на headless-сервере тихо отключается.
-Двойной клик по `.app` из dmg: если уже запущено — откроется браузер,
-если в конфиге TUN — система спросит пароль и приложение перезапустится с правами.
+- `docs/architecture/target-state.md` — целевая архитектура;
+- `docs/architecture/migration-plan.md` — план перехода от прототипа;
+- `docs/architecture/internal-contracts.md` — внутренние контракты пакетов;
+- `docs/architecture/frontend-workstreams.md` — контракт фронтенд-слоёв;
+- `docs/adr/` — принятые решения (Wails v2, архитектура Go, ревизии, supervisor,
+  граница привилегий, обновления, события, apply/rollback, стратегия тестов).
 
-## Нативные сборки (без jar): Windows .exe и macOS .app
+## Лицензия
 
-В `Actions` → `native-packages` → `Run workflow` (или пушем тега `v*`):
-на раннерах GitHub собираются установщики через jpackage —
-`SingBoxUI-*.exe` (Windows, с ярлыком в меню) и `SingBoxUI-*.dmg` (macOS, `.app` внутрь)
-со встроенной Java. Артефакты прикладываются к релизу, jar пользователю не виден.
-
-## Автозапуск и автоподключение
-
-Вкладка «Запуск» → «Автозапуск»: две галки.
-- **Запускать приложение при входе** — macOS: LaunchAgent,
-  Windows: ключ Run в реестре (javaw, без окна консоли). Команда — напрямую
-  `java -jar`, без run-скриптов.
-- **Подключать VPN при старте** — сохраняется в `ui-settings.json`,
-  sing-box стартует сам через пару секунд после запуска приложения.
-
-## Где лежит конфиг
-По умолчанию `config.json` создаётся в рабочей папке рядом с jar (стартовый шаблон:
-TUN + SOCKS inbounds, direct/block/dns outbounds). Свой путь:
-
-```sh
-java -jar singbox-ui.jar --singbox.config-path="C:\vpn\config.json"
-```
-
-Запуск самого sing-box с этим конфигом — из вкладки **Запуск** в интерфейсе
-(старт/стоп/рестарт + живой лог) или вручную:
-
-```sh
-sing-box run -c config.json        # macOS / Linux
-sing-box.exe run -c config.json    # Windows
-```
-
-## Возможности
-
-- Outbounds: vless/vmess/trojan/shadowsocks/wireguard/hysteria(2)/tuic/anytls/socks/http/ssh/tor/selector/urltest/direct/block/dns (+TLS/Reality/uTLS/transport)
-- Inbounds: tun/mixed/socks/http/tproxy/redirect/…
-- Сплит-туннелирование: домены / IP / гео-наборы / программы / порты → через VPN или напрямую
-- Route-правила, DNS-серверы, Raw JSON с валидацией
-- Просмотр JSON любого элемента (кнопка `{ }`), мониторинг трафика снизу:
-  общий / через VPN / напрямую (берётся из Clash API sing-box)
-- Шаблоны: «TUN + VLESS Reality», «SOCKS + selector», пустой
-- REST API: `/api/config`, `/api/inbounds`, `/api/outbounds`, `/api/route/rules`,
-  `/api/split/rules`, `/api/proc/start|stop|restart|status|logs`,
-  `/api/share/import`, `/api/share/export/{tag}`, `/api/validate`, `/api/check`, `/api/export`
+MIT — см. `LICENSE`.
