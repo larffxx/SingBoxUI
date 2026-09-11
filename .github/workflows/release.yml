@@ -165,10 +165,21 @@ jobs:
       - name: List artifacts
         run: find artifacts -maxdepth 3 -type f | sort
 
+      # Downloads are the only thing a user can verify without a certificate, so
+      # the release carries a checksum list next to the binaries.
+      - name: Write checksums
+        run: |
+          cd artifacts
+          find . -type f ! -name 'SHA256SUMS' -print0 | sort -z \
+            | xargs -0 shasum -a 256 | sed 's|\./||' > ../SHA256SUMS
+          cat ../SHA256SUMS
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**
+          files: |
+            artifacts/**
+            SHA256SUMS
           generate_release_notes: true
           draft: false
           fail_on_unmatched_files: true
