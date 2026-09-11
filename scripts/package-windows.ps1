@@ -155,7 +155,7 @@ if (-not $NoInstaller) {
         $helperLines = @(
             '    # SingBoxUI: the narrow privileged helper must ship next to the app so',
             '    # elevated TUN operations never run inside the UI process (ADR 005).',
-            "    File \"/oname=$privName.exe\" \"..\..\bin\$privName.exe\"",
+            ('    File /oname={0}.exe "..\..\bin\{0}.exe"' -f $privName),
             ''
         ) -join "`r`n"
         $nsi = $nsi.Replace($anchor, $helperLines + "`r`n" + $anchor)
