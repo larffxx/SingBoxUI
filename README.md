@@ -46,6 +46,7 @@ make bindings            # перегенерировать Wails bindings в fr
 make test                # go test — пакеты репозитория (без frontend/node_modules)
 make test-race           # go test -race — то же с детектором гонок
 make frontend-test       # vitest run
+make frontend-e2e        # Playwright-прогон шелла (нужен `npx playwright install chromium`)
 make package-macos       # universal .app → codesign → notarize → .dmg
 make package-windows     # NSIS-установщик + подпись (на Windows)
 ```

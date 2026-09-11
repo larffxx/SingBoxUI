@@ -111,6 +111,33 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  e2e:
+    name: Frontend — Playwright application-level flows
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci
+        run: npm ci --no-audit --no-fund
+
+      # Only Chromium: the config declares a single Chromium project, and the
+      # other engines would add minutes to every run for coverage we do not use.
+      - name: Install the Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: npm run e2e
+        run: npm run e2e
+
   wails:
     name: Wails build (macOS bundle + privileged helper)
     runs-on: macos-latest
