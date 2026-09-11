@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: SingBoxUI
+  thymeleaf:
+    cache: false
+server:
+  port: 8080
+singbox:
+  config-path: ./config.json
+  # binary пустой = авто: ./bin → PATH → скачать с GitHub.
+  # при желании: --singbox.binary=/usr/local/bin/sing-box
+  auto-install: true

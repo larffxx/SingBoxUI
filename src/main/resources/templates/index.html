@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ru" xmlns:th="http://www.thymeleaf.org">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SingBoxUI — настройка sing-box</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo">◈</span> SingBoxUI <span class="sub">sing-box config editor</span></div>
+  <div class="hdr-actions">
+    <span id="statusPill" class="pill">…</span>
+    <button id="btnCheck" title="sing-box check -c config.json">Check</button>
+    <button id="btnExport">Скачать config.json</button>
+    <button id="btnFileImport">Импорт из файла</button>
+    <input type="file" id="fileImport" accept=".json,application/json" hidden>
+    <select id="tplSelect" title="Шаблон">
+      <option value="">Шаблон…</option>
+      <option value="tun-vless">TUN + VLESS Reality</option>
+      <option value="socks-selector">SOCKS + selector</option>
+      <option value="empty">Пустой</option>
+    </select>
+  </div>
+</header>
+<div id="checkOut" class="checkout" hidden></div>
+
+<nav class="tabs">
+  <button data-tab="outbounds" class="active">Outbounds <span id="cntOut" class="cnt"></span></button>
+  <button data-tab="inbounds">Inbounds <span id="cntIn" class="cnt"></span></button>
+  <button data-tab="route">Route</button>
+  <button data-tab="dns">DNS</button>
+  <button data-tab="run">Запуск</button>
+  <button data-tab="raw">Raw JSON</button>
+</nav>
+
+<main>
+  <section id="tab-outbounds" class="tab">
+    <div class="toolbar">
+      <select id="newOutType"></select>
+      <button id="btnAddOut">+ Добавить</button>
+      <input id="shareIn" placeholder="Вставить share-ссылку: vless:// vmess:// trojan:// ss:// hy2:// tuic://">
+      <button id="btnShareImport">Импорт ссылки</button>
+    </div>
+    <div id="outList" class="grid"></div>
+  </section>
+
+  <section id="tab-inbounds" class="tab" hidden>
+    <div class="toolbar">
+      <select id="newInType"></select>
+      <button id="btnAddIn">+ Добавить</button>
+    </div>
+    <div id="inList" class="grid"></div>
+  </section>
+
+  <section id="tab-route" class="tab" hidden>
+    <div class="panel">
+      <h3>Сплит-туннелирование — что идёт через VPN, а что напрямую</h3>
+      <div class="muted">Правила проверяются сверху вниз, первое совпавшее решает. Несовпавшее идёт в «Final outbound».</div>
+      <div class="row">
+        <label>По умолчанию через <select id="routeFinal"></select></label>
+        <label><input type="checkbox" id="routeAutoIf"> auto_detect_interface</label>
+        <button id="btnSaveRoute">Сохранить route</button>
+      </div>
+      <h4>Правила <button id="btnAddSplit">+ правило</button></h4>
+      <div id="ruleList"></div>
+    </div>
+  </section>
+
+  <section id="tab-dns" class="tab" hidden>
+    <div class="panel">
+      <h3>DNS</h3>
+      <div class="row">
+        <label>Strategy
+          <select id="dnsStrategy">
+            <option value="">—</option>
+            <option>prefer_ipv4</option><option>prefer_ipv6</option>
+            <option>ipv4_only</option><option>ipv6_only</option>
+          </select>
+        </label>
+        <label>Final <input id="dnsFinal" placeholder="tag сервера"></label>
+        <button id="btnSaveDns">Сохранить DNS</button>
+      </div>
+      <h4>Серверы <button id="btnAddDns">+ сервер</button></h4>
+      <div id="dnsList"></div>
+    </div>
+  </section>
+
+  <section id="tab-run" class="tab" hidden>
+    <div class="panel">
+      <h3>sing-box — запуск</h3>
+      <div class="row">
+        <span id="sbState" class="pill">…</span>
+        <span id="sbPath" class="muted"></span>
+        <button id="btnSbInstall" class="ghost">Скачать sing-box</button>
+      </div>
+      <div class="row">
+        <span id="procState" class="pill">…</span>
+        <button id="btnProcStart">▶ Запустить</button>
+        <button id="btnProcRestart" class="ghost">↻ Перезапустить</button>
+        <button id="btnProcStop" class="ghost">■ Остановить</button>
+        <span id="procInfo" class="muted"></span>
+      </div>
+      <div class="muted">Запускает <code id="procCmd">sing-box run -c config.json</code> с текущим конфигом. Сохрани изменения перед запуском — подхватывается файл с диска.</div>
+      <div class="row">
+        <button id="btnProcLogs" class="ghost">Обновить лог</button>
+        <label class="muted"><input type="checkbox" id="procFollow" checked> следить live</label>
+      </div>
+      <pre id="procLogs" class="logs">Лог пуст.</pre>
+    </div>
+  </section>
+
+  <section id="tab-raw" class="tab" hidden>
+    <div class="panel">
+      <div class="row">
+        <button id="btnRawLoad">Обновить из сервера</button>
+        <button id="btnRawValidate">Проверить</button>
+        <button id="btnRawSave">Сохранить</button>
+        <button id="btnRawFile" class="ghost">Загрузить из файла…</button>
+        <input type="file" id="rawFile" accept=".json,application/json" hidden>
+        <button id="btnRawDownload" class="ghost">Скачать config.json</button>
+        <span id="rawMsg" class="muted"></span>
+      </div>
+      <div class="muted" style="margin-bottom:6px">Можно править JSON прямо здесь, вставить текст, перетащить .json файл на поле или загрузить кнопкой.</div>
+      <textarea id="rawJson" spellcheck="false"></textarea>
+    </div>
+  </section>
+</main>
+
+<div id="modal" class="modal" hidden>
+  <div class="sheet">
+    <h3 id="mTitle"></h3>
+    <div id="mForm" class="form"></div>
+    <div class="row end">
+      <button id="mCancel" class="ghost">Отмена</button>
+      <button id="mSave">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<footer id="trafficBar" title="Трафик через sing-box (нужен запущенный sing-box с clash_api)">
+  <span id="trState" class="muted">трафик: …</span>
+  <span id="trTotal"></span>
+  <span id="trVpn"></span>
+  <span id="trDirect"></span>
+</footer>
+<script src="/app.js"></script>
+</body>
+</html>
