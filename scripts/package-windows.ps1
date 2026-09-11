@@ -93,10 +93,34 @@ if (-not (Test-Path $appExe)) { throw "expected $appExe was not produced" }
 
 Write-Host "==> building the privileged helper (windows/$Arch)"
 $env:CGO_ENABLED = '0'
+# The helper must match the requested architecture: inheriting the host's default
+# left the arm64 package with an amd64 helper.
+$env:GOOS = 'windows'
+$env:GOARCH = $Arch
 & go build -trimpath -ldflags $ldflags -o (Join-Path $binDir "$privName.exe") ./cmd/singboxui-priv
 if ($LASTEXITCODE -ne 0) { throw "building cmd/singboxui-priv failed with exit code $LASTEXITCODE" }
 
 $helperExe = Join-Path $binDir "$privName.exe"
+
+# PE machine type: 0x8664 is x86-64, 0xAA64 is AArch64. A package that silently
+# carries the wrong architecture only shows up on the user's machine, so check
+# the executables that are about to be shipped.
+function Get-PeMachine([string]$Path) {
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+    return [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+}
+
+$expectedMachine = if ($Arch -eq 'arm64') { 0xAA64 } else { 0x8664 }
+foreach ($binary in @($appExe, $helperExe)) {
+    $machine = Get-PeMachine $binary
+    if ($machine -ne $expectedMachine) {
+        $name = [IO.Path]::GetFileName($binary)
+        $found = '{0:x4}' -f $machine
+        $wanted = '{0:x4}' -f $expectedMachine
+        throw "$name is a 0x$found binary, expected 0x$wanted (windows/$Arch)"
+    }
+}
 
 $signtool = $null
 $signed = $false
