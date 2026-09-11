@@ -111,6 +111,20 @@ if [ "$host_os" = "darwin" ]; then
     cp "${tmp}/${PRIV_NAME}" "$app/Contents/MacOS/${PRIV_NAME}"
     chmod +x "$app/Contents/MacOS/${PRIV_NAME}"
     echo "==> helper installed at $app/Contents/MacOS/${PRIV_NAME}"
+
+    # Copying the helper in after the build invalidates the ad-hoc signature the
+    # link step left on the bundle: `codesign --verify` then reports "a sealed
+    # resource is missing or invalid / file added: .../singboxui-priv", and a
+    # downloaded copy is refused as damaged. Sign innermost first so the seal
+    # covers the helper too. When a real identity is configured, packaging signs
+    # over this with the Developer ID.
+    if [ -z "${APPLE_CERTIFICATE:-}${SIGN_IDENTITY:-}" ]; then
+      echo "==> ad-hoc signing the bundle so its seal covers the helper"
+      codesign --force --sign - --identifier "com.larffxx.singboxui.helper" \
+        "$app/Contents/MacOS/${PRIV_NAME}"
+      codesign --force --sign - --identifier "com.larffxx.singboxui" "$app"
+      codesign --verify --strict "$app" && echo "==> signature seal is valid"
+    fi
   else
     mkdir -p build/bin
     cp "${tmp}/${PRIV_NAME}" "build/bin/${PRIV_NAME}"

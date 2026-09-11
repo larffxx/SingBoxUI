@@ -95,7 +95,18 @@ fi
 DMG="$DIST/${APP_NAME}-${VERSION}-${BUNDLE_SUFFIX}.dmg"
 echo "==> creating $DMG"
 rm -f "$DMG"
-hdiutil create -volname "$APP_NAME" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG" >/dev/null
+
+# The image carries the app plus the usual "drag me onto Applications" symlink.
+# Without it the mounted window shows the .app and nothing else, so a first-time
+# user has no hint that the app must be copied out — and Finder names the copy
+# "SingBoxUI 2.app" whenever an older build already sits in /Applications.
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
+ditto "$APP_PATH" "$stage/$(basename "$APP_PATH")"
+ln -s /Applications "$stage/Applications"
+
+hdiutil create -volname "$(basename "$APP_PATH" .app)" -srcfolder "$stage" \
+  -ov -format UDZO "$DMG" >/dev/null
 
 if [ "$SIGNED" = "1" ] && [ -n "$IDENTITY" ]; then
   codesign --force --sign "$IDENTITY" "$DMG"
