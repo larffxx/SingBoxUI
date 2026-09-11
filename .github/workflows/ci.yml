@@ -166,9 +166,13 @@ jobs:
       - name: Regenerated bindings must already be committed
         run: |
           wails generate module
-          if [ -n "$(git status --porcelain -- frontend/wailsjs)" ]; then
+          # Contents only: the generator rewrites the runtime files in place, so a
+          # formatter run or a local umask can flip their executable bit and fail
+          # this gate with a diff that carries no change.
+          out_of_date="$(git -c core.fileMode=false status --porcelain -- frontend/wailsjs)"
+          if [ -n "$out_of_date" ]; then
             echo "frontend/wailsjs is out of date: run 'make bindings' and commit the result."
-            git status --porcelain -- frontend/wailsjs
+            echo "$out_of_date"
             exit 1
           fi
 
