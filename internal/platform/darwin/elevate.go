@@ -27,6 +27,11 @@ const osascriptPath = "/usr/bin/osascript"
 // killed.
 const releaseGrace = 2 * time.Second
 
+// waitDelay bounds how long Wait may block on a pipe a descendant inherited. The
+// shell osascript starts can fork the helper and outlive the launcher while
+// holding that pipe open, which would otherwise keep the session un-exited.
+const waitDelay = 2 * time.Second
+
 // releasePoll is the interval at which a released launcher is re-checked.
 const releasePoll = 25 * time.Millisecond
 
@@ -76,10 +81,11 @@ func (e *Elevator) Elevate(ctx context.Context, argv []string) (privrun.Elevated
 			return nil, apperr.New(apperr.CodeInvalidArgument, opElevate, "an argument of the helper invocation contains control characters")
 		}
 	}
-	cmd := exec.CommandContext(ctx, e.executable, "-e", AppleScript(LaunchScript(argv)))
+	cmd := exec.Command(e.executable, "-e", AppleScript(LaunchScript(argv)))
 	// Its own process group, so that releasing the session can end the shell and
 	// the helper it started without signalling this process.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = waitDelay
 	var stderr bytes.Buffer
 	cmd.Stdout = io.Discard
 	cmd.Stderr = &stderr
@@ -87,8 +93,12 @@ func (e *Elevator) Elevate(ctx context.Context, argv []string) (privrun.Elevated
 		return nil, apperr.Wrap(apperr.CodeRuntimeStartFailed, opElevate, "osascript could not be started", err)
 	}
 	session := &session{cmd: cmd, pid: cmd.Process.Pid, stderr: &stderr}
-	// The goroutine is bound to the command, which is bound to ctx: cancelling the
-	// context is what ends this wait (spec §62).
+	// Cancelling the context ends the whole process group, exactly as Release does:
+	// osascript, the shell it started and the helper that shell forks. Ending only
+	// the launcher would leave the privileged helper running (spec §62).
+	session.stop = context.AfterFunc(ctx, session.terminate)
+	// The goroutine is bound to the command, and collect unregisters the callback
+	// above once the launcher has been reaped.
 	go session.collect()
 	return session, nil
 }
@@ -99,6 +109,10 @@ type session struct {
 	pid int
 
 	stderr *bytes.Buffer
+
+	// stop unregisters the context callback that ends the session, so the callback
+	// does not outlive the launcher it belongs to.
+	stop func() bool
 
 	mu   sync.Mutex
 	done bool
@@ -111,6 +125,10 @@ type session struct {
 // collect waits for the launcher. It must be started as a goroutine.
 func (s *session) collect() {
 	err := s.cmd.Wait()
+	// The launcher is reaped, so the context has nothing left to end.
+	if s.stop != nil {
+		s.stop()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.released && err != nil {
@@ -152,9 +170,26 @@ func (s *session) Status() error {
 	return fmt.Errorf("osascript: %w", err)
 }
 
-// Release ends the session. The launcher is asked to stop first, so the shell it
-// runs and the helper it started get a chance to shut down cleanly, and killed if
-// it refuses.
+// terminate signals the launcher's process group. The shell osascript started,
+// the helper it forks and anything that helper runs share the group, so one
+// signal reaches all of them: killing only the launcher's pid would leave the
+// privileged child behind. The group is asked to stop first and killed if it
+// refuses.
+func (s *session) terminate() {
+	if s.cmd.Process == nil {
+		return
+	}
+	_ = syscall.Kill(-s.pid, syscall.SIGTERM)
+	deadline := time.Now().Add(releaseGrace)
+	for !s.Exited() && time.Now().Before(deadline) {
+		time.Sleep(releasePoll)
+	}
+	if !s.Exited() {
+		_ = syscall.Kill(-s.pid, syscall.SIGKILL)
+	}
+}
+
+// Release ends the session through the same path a cancelled context takes.
 //
 // A helper that already started sing-box runs as root in its own session and is
 // not reached by this signal: privrun stops the child through the helper itself
@@ -166,14 +201,10 @@ func (s *session) Release() {
 	s.mu.Lock()
 	s.released = true
 	s.mu.Unlock()
-	_ = syscall.Kill(-s.pid, syscall.SIGTERM)
-	deadline := time.Now().Add(releaseGrace)
-	for !s.Exited() && time.Now().Before(deadline) {
-		time.Sleep(releasePoll)
+	if s.stop != nil {
+		s.stop()
 	}
-	if !s.Exited() {
-		_ = syscall.Kill(-s.pid, syscall.SIGKILL)
-	}
+	s.terminate()
 }
 
 // cancelled reports whether a failed osascript run means "the user dismissed the

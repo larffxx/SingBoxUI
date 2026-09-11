@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -202,10 +204,34 @@ func TestElevateRefusesAnInvocationItCannotQuoteSafely(t *testing.T) {
 	}
 }
 
+// waitForChildPID waits for the interpreter to report the pid of the process it
+// forked, so a test can tell whether cancelling the context ended the helper or
+// only the launcher.
+func waitForChildPID(t *testing.T, path string) int {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		raw, err := os.ReadFile(path)
+		if err == nil {
+			if pid, convErr := strconv.Atoi(strings.TrimSpace(string(raw))); convErr == nil && pid > 0 {
+				return pid
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the interpreter never reported the pid of its child (ReadFile(%q) = %v)", path, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestElevateEndsWithTheContext(t *testing.T) {
-	interpreterPath, _ := interpreter(t, "sleep 30")
+	// The interpreter forks a long-lived child and waits for it: osascript's shell
+	// does the same with the helper it runs, so cancelling the context has to end
+	// the whole process group and not just the launcher (spec §62).
+	childPath := filepath.Join(t.TempDir(), "child.pid")
+	interpreterPath, _ := interpreter(t, "sleep 30 &\nprintf '%s\\n' \"$!\" > '"+childPath+"'\nwait")
 	elevator := NewElevatorWith(interpreterPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	session, err := elevator.Elevate(ctx, []string{"/opt/SingBoxUI/singboxui-priv", "start"})
@@ -213,7 +239,13 @@ func TestElevateEndsWithTheContext(t *testing.T) {
 		t.Fatalf("Elevate() = %v", err)
 	}
 	t.Cleanup(session.Release)
+
+	// Cancel only once the helper is really running, so the test measures the
+	// cancellation and not the speed of the machine it runs on.
+	child := waitForChildPID(t, childPath)
+	cancel()
 	waitForExited(t, session)
+
 	status := session.Status()
 	if status == nil {
 		t.Fatal("Status() = nil, want the cancellation to be reported")
@@ -224,6 +256,20 @@ func TestElevateEndsWithTheContext(t *testing.T) {
 	}
 	if !strings.Contains(status.Error(), "osascript") {
 		t.Errorf("Status() = %v, want it to name what failed", status)
+	}
+
+	// The helper the launcher forked is gone too: a cancel that leaves a root
+	// helper running is not a cancel.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		err := syscall.Kill(child, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the forked helper (pid %d) survived the cancellation (Kill(0) = %v)", child, err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
