@@ -270,7 +270,7 @@ type harness struct {
 	dir   string
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, options ...func(*Deps)) *harness {
 	t.Helper()
 	dir := t.TempDir()
 	paths := testPaths(dir)
@@ -284,7 +284,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	rec := &recorder{}
 	emitter := NewEmitterWithSink(quietLogger(), rec.sink)
-	app := New(Deps{
+	deps := Deps{
 		Logger:     quietLogger(),
 		Store:      store,
 		Platform:   plat,
@@ -295,7 +295,13 @@ func newHarness(t *testing.T) *harness {
 		Version:    testVersion,
 		GOOS:       "darwin",
 		GOARCH:     "arm64",
-	})
+	}
+	// A test that needs a seam the real process supplies at runtime — the native
+	// file picker, for instance — overrides it before the graph is built.
+	for _, option := range options {
+		option(&deps)
+	}
+	app := New(deps)
 	// Application services emit while they work; the sink is attached here the
 	// way the Wails startup hook attaches the real one.
 	emitter.Attach(context.Background())

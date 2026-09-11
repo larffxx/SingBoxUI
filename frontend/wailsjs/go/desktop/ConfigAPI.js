@@ -38,12 +38,20 @@ export function GetRevision(arg1, arg2) {
   return window['go']['desktop']['ConfigAPI']['GetRevision'](arg1, arg2);
 }
 
+export function ImportConfigFile(arg1) {
+  return window['go']['desktop']['ConfigAPI']['ImportConfigFile'](arg1);
+}
+
 export function ImportLegacyConfig(arg1) {
   return window['go']['desktop']['ConfigAPI']['ImportLegacyConfig'](arg1);
 }
 
 export function ListRevisions(arg1, arg2) {
   return window['go']['desktop']['ConfigAPI']['ListRevisions'](arg1, arg2);
+}
+
+export function PickConfigFile() {
+  return window['go']['desktop']['ConfigAPI']['PickConfigFile']();
 }
 
 export function RollbackToRevision(arg1) {

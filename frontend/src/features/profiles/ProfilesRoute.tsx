@@ -63,6 +63,7 @@ import {
 } from '@/shared/ui'
 
 import { saveExport } from './exportFile'
+import { ImportConfigDialog } from './ImportConfigDialog'
 import {
   REVISION_LIMIT,
   useApplyTemplateMutation,
@@ -526,11 +527,16 @@ export function ProfilesRoute(): React.ReactElement {
         }}
       />
 
-      <ImportPathDialog
+      <ImportConfigDialog
         open={importOpen}
         onOpenChange={setImportOpen}
-        pending={importLegacy.isPending}
-        onSubmit={runImportLegacy}
+        onImported={(imported) => {
+          setImportOpen(false)
+          setNotice(
+            `Профиль «${imported.name}» создан из файла. Откройте его, чтобы проверить конфигурацию.`,
+          )
+          openProfile(imported.id)
+        }}
       />
 
       <RenameProfileDialog
@@ -769,74 +775,6 @@ function CreateProfileDialog({
             <Button type="submit" disabled={pending || trimmed === ''}>
               {pending ? <Spinner label="Создаём…" /> : null}
               Создать
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function ImportPathDialog({
-  open,
-  onOpenChange,
-  pending,
-  onSubmit,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  pending: boolean
-  onSubmit: (path: string) => void
-}) {
-  const [path, setPath] = React.useState('')
-
-  React.useEffect(() => {
-    if (open) setPath('')
-  }, [open])
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        title="Импорт конфигурации из файла"
-        description="Профиль создаётся из копии файла. Исходный файл остаётся нетронутым."
-      >
-        <form
-          className="space-y-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            const trimmed = path.trim()
-            if (trimmed === '') return
-            onSubmit(trimmed)
-          }}
-        >
-          <Field
-            label="Путь к файлу конфигурации"
-            htmlFor="import-path"
-            hint="Абсолютный путь, например /etc/sing-box/config.json или ~/.config/sing-box/config.json"
-          >
-            <Input
-              id="import-path"
-              value={path}
-              onChange={(event) => {
-                setPath(event.target.value)
-              }}
-              placeholder="/path/to/config.json"
-            />
-          </Field>
-
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                onOpenChange(false)
-              }}
-            >
-              Отмена
-            </Button>
-            <Button type="submit" disabled={pending || path.trim() === ''}>
-              {pending ? <Spinner label="Импортируем…" /> : null}
-              Импортировать
             </Button>
           </div>
         </form>

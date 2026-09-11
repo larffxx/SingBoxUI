@@ -101,6 +101,14 @@ export const configApi = {
     unwrap(await ConfigAPI.DetectLegacyConfig()),
   importLegacy: async (path: string): Promise<desktop.ProfilePayload> =>
     unwrap(await ConfigAPI.ImportLegacyConfig(path)),
+  /** Opens the native picker; a dismissed dialog comes back as `canceled`. */
+  pickConfigFile: async (): Promise<desktop.PickConfigFilePayload> =>
+    unwrap(await ConfigAPI.PickConfigFile()),
+  /** Copies the configuration at `path` into a new profile (spec §11). */
+  importConfigFile: async (input: {
+    path: string
+    name: string
+  }): Promise<desktop.ProfilePayload> => unwrap(await ConfigAPI.ImportConfigFile(input)),
 }
 
 /** RuntimeAPI — supervised sing-box process (spec §22, §23). */

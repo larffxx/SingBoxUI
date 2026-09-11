@@ -1,13 +1,24 @@
 package desktop
 
 import (
+	"bytes"
+	"encoding/binary"
 	"os"
+	"path/filepath"
+	"strings"
+	"unicode/utf16"
 
 	"github.com/larffxx/singboxui/internal/app/config"
 	"github.com/larffxx/singboxui/internal/app/profiles"
 	"github.com/larffxx/singboxui/internal/domain/apperr"
 	"github.com/larffxx/singboxui/internal/domain/profile"
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// maxImportBytes caps a file the import is willing to read: a sing-box
+// configuration is kilobytes, and no user action may load an arbitrary amount
+// of disk into memory.
+const maxImportBytes = 8 << 20
 
 // ConfigAPI is the configuration facade bound to the frontend (spec §31): the
 // draft, validation, revisions, apply/rollback and import of an existing
@@ -188,6 +199,133 @@ func (a *ConfigAPI) GetActiveConfig() ActiveConfigPayload {
 	}
 	out.ConfigJSON = raw
 	return out
+}
+
+// ImportConfigFileRequest names the file to import and the profile to create.
+// `Name` is optional: the file name is used when it is empty.
+type ImportConfigFileRequest struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
+// PickConfigFilePayload carries the path chosen in the native picker. A
+// dismissed dialog is `Canceled`, not an error.
+type PickConfigFilePayload struct {
+	Path     string        `json:"path"`
+	Canceled bool          `json:"canceled"`
+	Error    *apperr.Error `json:"error,omitempty"`
+}
+
+// PickConfigFile opens the native file picker for a sing-box configuration
+// (spec §11). It returns an empty, canceled payload when the user dismissed the
+// dialog: closing a picker is not a failure.
+func (a *ConfigAPI) PickConfigFile() PickConfigFilePayload {
+	const op = "ConfigAPI.PickConfigFile"
+	if err := a.app.guard(op); err != nil {
+		return PickConfigFilePayload{Error: err}
+	}
+	pick := a.app.deps.OpenFileDialog
+	if pick == nil {
+		return PickConfigFilePayload{Error: apperr.New(apperr.CodeInternal, op, "the file picker is not available in this build")}
+	}
+	path, err := pick(a.app.callCtx(), wruntime.OpenDialogOptions{
+		Title: "Выберите конфигурацию sing-box",
+		Filters: []wruntime.FileFilter{
+			{DisplayName: "Конфигурация sing-box (*.json)", Pattern: "*.json"},
+			{DisplayName: "Все файлы", Pattern: "*"},
+		},
+	})
+	if err != nil {
+		return PickConfigFilePayload{Error: apperr.From(op, apperr.CodeInternal, err)}
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return PickConfigFilePayload{Canceled: true}
+	}
+	return PickConfigFilePayload{Path: path}
+}
+
+// ImportConfigFile creates a profile from a sing-box configuration on disk. The
+// file is only ever read: importing never rewrites or deletes what the user
+// pointed at (spec §11, §65, §66).
+func (a *ConfigAPI) ImportConfigFile(req ImportConfigFileRequest) ProfilePayload {
+	const op = "ConfigAPI.ImportConfigFile"
+	if err := a.app.guard(op); err != nil {
+		return ProfilePayload{Error: err}
+	}
+	path := strings.TrimSpace(req.Path)
+	if path == "" {
+		return ProfilePayload{Error: apperr.New(apperr.CodeInvalidArgument, op, "a configuration file path is required")}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return ProfilePayload{Error: apperr.From(op, apperr.CodeNotFound, err)}
+	}
+	if info.IsDir() {
+		return ProfilePayload{Error: apperr.Newf(apperr.CodeInvalidArgument, op, "%s is a directory, not a configuration file", path)}
+	}
+	if info.Size() > maxImportBytes {
+		return ProfilePayload{Error: apperr.Newf(apperr.CodeInvalidArgument, op, "the configuration file is larger than %d bytes", maxImportBytes)}
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ProfilePayload{Error: apperr.From(op, apperr.CodeNotFound, err)}
+	}
+	configJSON := decodeConfigFile(raw)
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = importProfileName(path)
+	}
+	p, err := a.app.profiles.Import(a.app.callCtx(), profiles.ImportInput{
+		Name:        name,
+		Description: "Imported from " + path,
+		ConfigJSON:  configJSON,
+		Source:      profile.SourceImport,
+	})
+	if err != nil {
+		return ProfilePayload{Error: fail(op, err)}
+	}
+	return ProfilePayload{Profile: p}
+}
+
+// decodeConfigFile turns the bytes of a configuration file into the JSON text
+// we store. encoding/json accepts neither a UTF-8 BOM nor UTF-16, and Windows
+// still produces both (Notepad, PowerShell redirection, some editors), so a file
+// the user can read must not fail as "invalid JSON".
+func decodeConfigFile(raw []byte) string {
+	switch {
+	case bytes.HasPrefix(raw, []byte{0xEF, 0xBB, 0xBF}):
+		// UTF-8 BOM: the JSON itself is already UTF-8.
+		return string(raw[3:])
+	case bytes.HasPrefix(raw, []byte{0xFF, 0xFE}):
+		return decodeUTF16(raw[2:], binary.LittleEndian)
+	case bytes.HasPrefix(raw, []byte{0xFE, 0xFF}):
+		return decodeUTF16(raw[2:], binary.BigEndian)
+	}
+	return string(raw)
+}
+
+// decodeUTF16 decodes BOM-less UTF-16 text in the given byte order.
+func decodeUTF16(raw []byte, order binary.ByteOrder) string {
+	units := make([]uint16, 0, len(raw)/2)
+	for i := 0; i+1 < len(raw); i += 2 {
+		units = append(units, order.Uint16(raw[i:i+2]))
+	}
+	return string(utf16.Decode(units))
+}
+
+// importProfileName derives a profile name from a configuration file path:
+// `/etc/sing-box/config.json` becomes `config`.
+func importProfileName(path string) string {
+	base := filepath.Base(path)
+	if ext := filepath.Ext(base); ext != "" {
+		base = strings.TrimSuffix(base, ext)
+	}
+	base = strings.TrimSpace(base)
+	if base == "" || base == "." {
+		return "Imported configuration"
+	}
+	return base
 }
 
 // ActiveConfigPath returns the absolute path of the active configuration.

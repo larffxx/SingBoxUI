@@ -278,3 +278,22 @@ export function useImportLegacyConfigMutation(): UseMutationResult<
     },
   })
 }
+
+/**
+ * Imports any sing-box configuration on disk as a new profile (spec §11). The
+ * backend reads the file and leaves it alone, so this only ever adds a profile.
+ */
+export function useImportConfigFileMutation(): UseMutationResult<
+  desktop.ProfilePayload,
+  unknown,
+  { path: string; name: string }
+> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { path: string; name: string }) => configApi.importConfigFile(input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.profiles.all })
+      void client.invalidateQueries({ queryKey: keys.config.all })
+    },
+  })
+}

@@ -21,9 +21,13 @@ export function GetDraft(arg1:string):Promise<desktop.DraftPayload>;
 
 export function GetRevision(arg1:string,arg2:string):Promise<desktop.RevisionPayload>;
 
+export function ImportConfigFile(arg1:desktop.ImportConfigFileRequest):Promise<desktop.ProfilePayload>;
+
 export function ImportLegacyConfig(arg1:string):Promise<desktop.ProfilePayload>;
 
 export function ListRevisions(arg1:string,arg2:number):Promise<desktop.RevisionListPayload>;
+
+export function PickConfigFile():Promise<desktop.PickConfigFilePayload>;
 
 export function RollbackToRevision(arg1:config.ApplyInput):Promise<desktop.RevisionPayload>;
 

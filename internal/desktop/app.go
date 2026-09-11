@@ -21,6 +21,7 @@ import (
 	"github.com/larffxx/singboxui/internal/privilege"
 	"github.com/larffxx/singboxui/internal/singbox"
 	"github.com/larffxx/singboxui/internal/storage/sqlite"
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Deps are the process-level collaborators the composition root (cmd/singboxui)
@@ -47,6 +48,10 @@ type Deps struct {
 	GOOS    string
 	GOARCH  string
 	Now     func() time.Time
+	// OpenFileDialog is the native file picker used by the configuration
+	// import. A nil value uses the Wails dialog, which needs a live window;
+	// a test injects a stub so the import path stays testable (spec §63).
+	OpenFileDialog func(ctx context.Context, options wruntime.OpenDialogOptions) (string, error)
 }
 
 // App is the root object bound to the frontend. It owns the application
@@ -169,6 +174,9 @@ func New(deps Deps) *App {
 	}
 	if deps.HTTPClient == nil {
 		deps.HTTPClient = &http.Client{Timeout: 60 * time.Second}
+	}
+	if deps.OpenFileDialog == nil {
+		deps.OpenFileDialog = wruntime.OpenFileDialog
 	}
 
 	root, cancel := context.WithCancel(context.Background())
