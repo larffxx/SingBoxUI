@@ -149,6 +149,28 @@ $('btnProcRestart').onclick = async () => {
   renderProc(); renderProcLogs();
 };
 $('btnProcLogs').onclick = renderProcLogs;
+
+/* ---------- autostart / autoconnect ---------- */
+async function renderStartup() {
+  try {
+    const a = await api('GET','/api/autostart');
+    $('setAutostart').checked = !!a.enabled;
+    $('setAutostart').disabled = !a.supported;
+    $('autostartInfo').textContent = a.supported ? '' : 'не поддерживается на этой ОС';
+    const s = await api('GET','/api/settings');
+    $('setAutoConnect').checked = !!s.autoConnect;
+  } catch { /* ignore */ }
+}
+$('setAutostart').onchange = async e => {
+  const r = await api('POST','/api/autostart',{enabled:e.target.checked});
+  if (r.error) { toast('Автозапуск: ' + r.error); e.target.checked = !e.target.checked; }
+  else toast(e.target.checked ? 'Автозапуск включён' : 'Автозапуск выключен');
+};
+$('setAutoConnect').onchange = async e => {
+  const r = await api('POST','/api/settings',{autoConnect:e.target.checked});
+  if (r.error) { toast('Ошибка: ' + r.error); e.target.checked = !e.target.checked; }
+  else toast(e.target.checked ? 'VPN будет подключаться сам' : 'Автоподключение выключено');
+};
 $('btnSbInstall').onclick = async () => {
   const b = $('btnSbInstall');
   b.disabled = true; b.textContent = 'Качаю…';
@@ -437,7 +459,7 @@ document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   $('tab-'+b.dataset.tab).hidden=false;
   if (procTimer) { clearInterval(procTimer); procTimer = null; }
   if (b.dataset.tab==='raw') rawLoad();
-  if (b.dataset.tab==='run') { renderProc(); renderProcLogs(); procTimer = setInterval(() => { renderProc(); renderProcLogs(); }, 3000); }
+  if (b.dataset.tab==='run') { renderProc(); renderProcLogs(); renderStartup(); procTimer = setInterval(() => { renderProc(); renderProcLogs(); }, 3000); }
 });
 $('btnAddOut').onclick = () => { bindSave(); openModal('outbounds', null); };
 $('btnAddIn').onclick = () => { bindSave(); openModal('inbounds', null); };

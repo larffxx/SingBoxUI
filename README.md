@@ -73,6 +73,22 @@ java -jar singbox-ui.jar --singbox.binary=/opt/sing-box/sing-box
 в браузере, запустить/остановить sing-box, выход. Работает при запуске через
 `run.sh` или `java -jar` в обычной GUI-сессии; на headless-сервере тихо отключается.
 
+## Нативные сборки (без jar): Windows .exe и macOS .app
+
+В `Actions` → `native-packages` → `Run workflow` (или пушем тега `v*`):
+на раннерах GitHub собираются установщики через jpackage —
+`SingBoxUI-*.exe` (Windows, с ярлыком в меню) и `SingBoxUI-*.dmg` (macOS, `.app` внутрь)
+со встроенной Java. Артефакты прикладываются к релизу, jar пользователю не виден.
+
+## Автозапуск и автоподключение
+
+Вкладка «Запуск» → «Автозапуск»: две галки.
+- **Запускать приложение при входе** — macOS: LaunchAgent,
+  Windows: ключ Run в реестре (javaw, без окна консоли). Команда — напрямую
+  `java -jar`, без run-скриптов.
+- **Подключать VPN при старте** — сохраняется в `ui-settings.json`,
+  sing-box стартует сам через пару секунд после запуска приложения.
+
 ## Где лежит конфиг
 По умолчанию `config.json` создаётся в рабочей папке рядом с jar (стартовый шаблон:
 TUN + SOCKS inbounds, direct/block/dns outbounds). Свой путь:

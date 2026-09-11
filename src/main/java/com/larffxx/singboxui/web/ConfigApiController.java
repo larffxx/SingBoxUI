@@ -3,6 +3,8 @@ package com.larffxx.singboxui.web;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
+import com.larffxx.singboxui.service.AutostartService;
+import com.larffxx.singboxui.service.SettingsService;
 import com.larffxx.singboxui.service.ShareLinkService;
 import com.larffxx.singboxui.service.SingBoxBinaryService;
 import com.larffxx.singboxui.service.SingBoxConfigService;
@@ -37,17 +39,22 @@ public class ConfigApiController {
     private final SingBoxProcessService proc;
     private final SingBoxProvisioningService provisioning;
     private final TrafficService traffic;
+    private final SettingsService settings;
+    private final AutostartService autostart;
     private final ShareLinkService share;
     private final ObjectMapper mapper;
 
     public ConfigApiController(SingBoxConfigService configs, SingBoxBinaryService binary,
                                SingBoxProcessService proc, SingBoxProvisioningService provisioning,
-                               TrafficService traffic, ShareLinkService share, ObjectMapper mapper) {
+                               TrafficService traffic, SettingsService settings, AutostartService autostart,
+                               ShareLinkService share, ObjectMapper mapper) {
         this.configs = configs;
         this.binary = binary;
         this.proc = proc;
         this.provisioning = provisioning;
         this.traffic = traffic;
+        this.settings = settings;
+        this.autostart = autostart;
         this.share = share;
         this.mapper = mapper;
     }
@@ -268,6 +275,38 @@ public class ConfigApiController {
     @GetMapping("/traffic")
     public Map<String, Object> traffic() {
         return traffic.current();
+    }
+
+    @GetMapping("/settings")
+    public Map<String, Object> getSettings() {
+        return settings.get();
+    }
+
+    @PostMapping("/settings")
+    public Object saveSettings(@RequestBody Map<String, Object> body) {
+        try {
+            Object v = body.get("autoConnect");
+            boolean autoConnect = v instanceof Boolean b ? b : Boolean.parseBoolean(String.valueOf(v));
+            return settings.set(autoConnect);
+        } catch (IllegalStateException e) {
+            return Map.of("error", e.getMessage());
+        }
+    }
+
+    @GetMapping("/autostart")
+    public Map<String, Object> autostartStatus() {
+        return autostart.status();
+    }
+
+    @PostMapping("/autostart")
+    public Object setAutostart(@RequestBody Map<String, Object> body) {
+        try {
+            Object v = body.get("enabled");
+            boolean enabled = v instanceof Boolean b ? b : Boolean.parseBoolean(String.valueOf(v));
+            return autostart.setEnabled(enabled);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return Map.of("error", e.getMessage());
+        }
     }
 
     @GetMapping("/singbox")

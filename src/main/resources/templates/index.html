@@ -106,6 +106,12 @@
         <button id="btnProcLogs" class="ghost">Обновить лог</button>
         <label class="muted"><input type="checkbox" id="procFollow" checked> следить live</label>
       </div>
+      <h4>Автозапуск</h4>
+      <div class="row">
+        <label class="muted"><input type="checkbox" id="setAutostart"> запускать приложение при входе в систему</label>
+        <label class="muted"><input type="checkbox" id="setAutoConnect"> подключать VPN при старте</label>
+        <span id="autostartInfo" class="muted"></span>
+      </div>
       <pre id="procLogs" class="logs">Лог пуст.</pre>
     </div>
   </section>
