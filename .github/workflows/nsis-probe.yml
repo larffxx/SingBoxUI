@@ -1,6 +1,8 @@
 name: NSIS probe (throwaway)
 
 on:
+  push:
+    branches: [dev]
   workflow_dispatch:
 
 jobs:
