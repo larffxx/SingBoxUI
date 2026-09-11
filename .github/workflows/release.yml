@@ -164,14 +164,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      # Only the packaging jobs publish binaries: the reusable test pipeline also
+      # uploads its own artifacts (the development app bundle, the frontend dist),
+      # and merging those in shipped the app's internals as release downloads.
+      - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: '*-release'
           merge-multiple: true
 
+      # A download that cannot be explained is a packaging bug, not a bonus file.
+      - name: Reject unexpected artifacts
+        run: |
+          unexpected="$(find artifacts -type f ! -name '*.dmg' ! -name '*.zip' ! -name '*.exe' -print)"
+          if [ -n "$unexpected" ]; then
+            echo "unexpected files in the release payload:"
+            echo "$unexpected"
+            exit 1
+          fi
+
       - name: List artifacts
-        run: find artifacts -maxdepth 3 -type f | sort
+        run: find artifacts -type f | sort
 
       # Downloads are the only thing a user can verify without a certificate, so
       # the release carries a checksum list next to the binaries.
