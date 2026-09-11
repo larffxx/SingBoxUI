@@ -1,0 +1,61 @@
+name: native-packages
+
+# Нативные сборки без jar: Windows .exe-инсталлер и macOS .app/.dmg через jpackage.
+# Запуск вручную (Actions → Run workflow) или пушем тега v*.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            pkg: exe
+            jdk: 17
+          - os: macos-latest
+            pkg: dmg
+            jdk: 17
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK (with jpackage)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.jdk }}
+
+      - name: Build jar
+        run: ./mvnw -q package -DskipTests
+        shell: bash
+
+      - name: jpackage
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          VER="${VER:-0.1.0}"
+          jpackage \
+            --type ${{ matrix.pkg }} \
+            --name SingBoxUI \
+            --app-version "$VER" \
+            --vendor larffxx \
+            --input target \
+            --main-jar singbox-ui.jar \
+            --main-class com.larffxx.singboxui.SingBoxUiApplication \
+            --dest dist \
+            --java-options "-Dapple.awt.UIElement=true" \
+            --win-menu --win-shortcut --win-dir-chooser \
+            --mac-package-identifier com.larffxx.singboxui
+        shell: bash
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
