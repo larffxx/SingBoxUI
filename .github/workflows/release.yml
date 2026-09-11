@@ -127,6 +127,14 @@ jobs:
           if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
             choco install nsis --no-progress -y
           }
+          # Neither the preinstalled NSIS nor a fresh Chocolatey install is
+          # guaranteed to be on PATH, and Wails shells out to makensis itself, so
+          # the directory is exported for every later step.
+          $nsis = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
+          if (Test-Path $nsis) { Add-Content -Path $env:GITHUB_PATH -Value $nsis }
+          if (-not (Test-Path (Join-Path $nsis 'makensis.exe'))) {
+            throw "makensis.exe was not found under $nsis"
+          }
 
       - name: Report signing mode
         shell: pwsh
