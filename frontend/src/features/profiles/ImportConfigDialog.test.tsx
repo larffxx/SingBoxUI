@@ -36,12 +36,7 @@ function renderDialog(props: Partial<React.ComponentProps<typeof ImportConfigDia
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const utils = render(
     <QueryClientProvider client={client}>
-      <ImportConfigDialog
-        open
-        onOpenChange={onOpenChange}
-        onImported={onImported}
-        {...props}
-      />
+      <ImportConfigDialog open onOpenChange={onOpenChange} onImported={onImported} {...props} />
     </QueryClientProvider>,
   )
   return { ...utils, onImported, onOpenChange }
@@ -49,7 +44,10 @@ function renderDialog(props: Partial<React.ComponentProps<typeof ImportConfigDia
 
 describe('import configuration from a file', () => {
   it('uses the native picker to choose the file and imports the chosen path', async () => {
-    mocks.pickConfigFile.mockResolvedValue({ path: '/Users/test/Downloads/config.json', canceled: false })
+    mocks.pickConfigFile.mockResolvedValue({
+      path: '/Users/test/Downloads/config.json',
+      canceled: false,
+    })
     mocks.importConfigFile.mockResolvedValue({
       profile: { id: 'profile-imported', name: 'config' },
     })

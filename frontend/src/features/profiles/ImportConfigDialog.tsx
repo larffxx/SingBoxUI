@@ -77,7 +77,8 @@ export function ImportConfigDialog({
   }
 
   const failure = importConfig.error === null ? null : toAppError(importConfig.error)
-  const failureHint = failure === null ? undefined : (hintFor(failure.code) ?? IMPORT_HINTS[failure.code])
+  const failureHint =
+    failure === null ? undefined : (hintFor(failure.code) ?? IMPORT_HINTS[failure.code])
   const trimmedPath = path.trim()
 
   return (
