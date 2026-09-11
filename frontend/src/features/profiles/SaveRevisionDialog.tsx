@@ -22,6 +22,7 @@ import * as React from 'react'
 import type { AppError } from '@/shared/api/errors'
 import { describeError, hintFor, toAppError } from '@/shared/api/errors'
 import { configApi } from '@/shared/api/bindings'
+import { REVISION_SOURCE_MANUAL } from '@/shared/api/revisionSources'
 
 export function SaveRevisionDialog({
   open,
@@ -60,7 +61,9 @@ export function SaveRevisionDialog({
         profileId,
         configJson,
         comment: comment.trim(),
-        source: 'editor',
+        // A hand-written revision is `manual` (spec §12); any other value is
+        // refused by the backend with INVALID_ARGUMENT.
+        source: REVISION_SOURCE_MANUAL,
         apply: applyNow,
       })
       .then((payload) => {

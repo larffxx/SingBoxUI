@@ -1,7 +1,10 @@
 // Package profile holds the profile and configuration-revision domain model.
 package profile
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Source records where a revision came from. Stored as a string in SQLite.
 type Source string
@@ -15,14 +18,24 @@ const (
 	SourceMigration   Source = "migration"
 )
 
-// Valid reports whether the source is one of the known values.
-func (s Source) Valid() bool {
-	switch s {
-	case SourceManual, SourceImport, SourceShareImport, SourceTemplate, SourceRollback, SourceMigration:
-		return true
-	}
-	return false
+// allSources is the one list of valid sources (spec §12). Valid, AllSources and
+// the frontend contract test all read it, so a new source cannot be added in one
+// place and forgotten in another.
+var allSources = []Source{
+	SourceManual,
+	SourceImport,
+	SourceShareImport,
+	SourceTemplate,
+	SourceRollback,
+	SourceMigration,
 }
+
+// Valid reports whether the source is one of the known values.
+func (s Source) Valid() bool { return slices.Contains(allSources, s) }
+
+// AllSources returns every known source in the order the spec lists them.
+// The order is the shared one: the UI's list is compared against it verbatim.
+func AllSources() []Source { return slices.Clone(allSources) }
 
 // ValidationStatus describes the outcome of a validation step for a revision.
 type ValidationStatus string

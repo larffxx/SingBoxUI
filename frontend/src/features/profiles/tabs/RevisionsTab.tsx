@@ -33,6 +33,7 @@ import {
   Toolbar,
 } from '@/shared/ui'
 import { describeError, hintFor, toAppError, type AppError } from '@/shared/api/errors'
+import { revisionSourceLabel } from '@/shared/api/revisionSources'
 import { formatDateTime } from '@/shared/lib/time'
 import { truncate } from '@/shared/lib/format'
 import type { config } from '@/shared/api/bindings'
@@ -255,7 +256,9 @@ export function RevisionsTab({
                       ) : null}
                     </TableCell>
                     <TableCell className="text-xs">{formatDateTime(revision.createdAt)}</TableCell>
-                    <TableCell className="text-xs">{revision.source}</TableCell>
+                    <TableCell className="text-xs">
+                      {revisionSourceLabel(revision.source)}
+                    </TableCell>
                     <TableCell className="text-xs">{revision.comment ?? '—'}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-1">
@@ -409,7 +412,7 @@ export function RevisionsTab({
           title="Откат выполнен"
           details={[
             `Новая ревизия: ${rollbackRevision.id}`,
-            `Источник: ${rollbackRevision.source}`,
+            `Источник: ${revisionSourceLabel(rollbackRevision.source)}`,
             `Создана: ${formatDateTime(rollbackRevision.createdAt)}`,
           ]}
         >
