@@ -58,6 +58,18 @@ if (-not $version) {
 }
 $env:VERSION = $version
 
+# The bundle and installer metadata come from wails.json, while -ldflags only
+# reaches the Go binary: a release packaged with a stale productVersion ships
+# binaries whose reported version contradicts the tag. Only enforced for release
+# versions, so `git describe` output on a working tree still builds.
+if ($version -match '^v?\d+\.\d+\.\d+$') {
+    $want = $version -replace '^v', ''
+    $have = (Get-Content -Raw -Path (Join-Path $root 'wails.json') | ConvertFrom-Json).info.productVersion
+    if ($have -ne $want) {
+        throw "wails.json info.productVersion is '$have' but this build is version '$version'; bump it before releasing"
+    }
+}
+
 # Wails appends "-mmacosx-version-min=10.13" on macOS; on Windows the only
 # build-flag concern is that the version metadata must be injected explicitly,
 # because a bare `wails build` ships a binary with no version.
@@ -182,7 +194,19 @@ if ($signed) {
 }
 
 foreach ($artifact in $artifacts) {
-    $suffix = if ($artifact.Name -match 'setup|installer') { 'setup' } else { 'app' }
+    # The privileged helper ships next to the application executable, so it needs
+    # its own name: the two used to share the 'app' suffix, and `Copy-Item -Force`
+    # then silently overwrote whichever came first, so the "app" download could
+    # be the helper.
+    $suffix = if ($artifact.Name -match 'setup|installer') {
+        'setup'
+    }
+    elseif ($artifact.Name -eq "$privName.exe") {
+        'helper'
+    }
+    else {
+        'app'
+    }
     $target = Join-Path $dist "$appName-$version-windows-$Arch-$suffix$($artifact.Extension)"
     Copy-Item -Path $artifact.FullName -Destination $target -Force
     Write-Host "==> artifact: $target"

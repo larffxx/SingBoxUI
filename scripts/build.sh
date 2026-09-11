@@ -20,6 +20,20 @@ GIT_COMMIT="${GIT_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unkno
 BUILD_DATE="${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE}"
 
+# The bundle metadata (CFBundleShortVersionString) comes from wails.json, while
+# -ldflags only reaches the Go binary: packaging with a stale productVersion
+# ships an app whose own manifest contradicts its tag. Enforced for release
+# versions only, so a `git describe` string on a working tree still builds.
+if [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  want="${VERSION#v}"
+  have="$(sed -n 's/.*"productVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' wails.json | head -1)"
+  if [ "$have" != "$want" ]; then
+    echo "wails.json info.productVersion is '$have' but this build is version '$VERSION'." >&2
+    echo "Bump info.productVersion in wails.json before packaging the release." >&2
+    exit 1
+  fi
+fi
+
 # macOS deployment target. The Go toolchain on this machine ships objects built
 # for macOS 13.0, while Wails appends "-mmacosx-version-min=10.13" to the CGO
 # flags — the SDK clamps that to 11.0, so the linker warns that an object "was
