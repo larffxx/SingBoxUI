@@ -195,6 +195,49 @@ func TestImportConfigFileLeavesNothingBehindWhenTheJSONIsInvalid(t *testing.T) {
 	}
 }
 
+// The Wails file dialog needs the startup context: the app's own context is
+// detached from Wails and carries no dialog handler.
+func TestPickConfigFileUsesTheStartupContext(t *testing.T) {
+	type ctxKey string
+	var got context.Context
+	h := newHarness(t, func(d *Deps) {
+		d.OpenFileDialog = func(ctx context.Context, _ wruntime.OpenDialogOptions) (string, error) {
+			got = ctx
+			return "/tmp/config.json", nil
+		}
+	})
+	startup := context.WithValue(context.Background(), ctxKey("wails"), true)
+	h.app.OnStartup(startup)
+
+	if payload := h.app.ConfigAPI.PickConfigFile(); payload.Error != nil {
+		t.Fatalf("PickConfigFile: %+v", payload.Error)
+	}
+	if got != startup {
+		t.Fatalf("the picker got %v, want the startup context %v", got, startup)
+	}
+}
+
+// A dialog without a handler panics inside the Wails runtime; the app must
+// survive that and tell the user the picker is unavailable.
+func TestPickConfigFileSurvivesAPanickingPicker(t *testing.T) {
+	h := newHarness(t, func(d *Deps) {
+		d.OpenFileDialog = func(context.Context, wruntime.OpenDialogOptions) (string, error) {
+			panic("interface conversion: interface {} is nil, not frontend.Frontend")
+		}
+	})
+
+	payload := h.app.ConfigAPI.PickConfigFile()
+	if payload.Error == nil {
+		t.Fatal("a panicking picker reported success")
+	}
+	if payload.Error.Code != apperr.CodeInternal {
+		t.Fatalf("error code = %s, want %s", payload.Error.Code, apperr.CodeInternal)
+	}
+	if !strings.Contains(payload.Error.Message, "frontend.Frontend") {
+		t.Fatalf("error message = %q, want the panic text", payload.Error.Message)
+	}
+}
+
 func TestPickConfigFileReturnsTheChosenPath(t *testing.T) {
 	var options wruntime.OpenDialogOptions
 	h := newHarness(t, func(d *Deps) {

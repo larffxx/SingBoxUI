@@ -224,11 +224,7 @@ func (a *ConfigAPI) PickConfigFile() PickConfigFilePayload {
 	if err := a.app.guard(op); err != nil {
 		return PickConfigFilePayload{Error: err}
 	}
-	pick := a.app.deps.OpenFileDialog
-	if pick == nil {
-		return PickConfigFilePayload{Error: apperr.New(apperr.CodeInternal, op, "the file picker is not available in this build")}
-	}
-	path, err := pick(a.app.callCtx(), wruntime.OpenDialogOptions{
+	path, err := a.pickFile(op, wruntime.OpenDialogOptions{
 		Title: "Выберите конфигурацию sing-box",
 		Filters: []wruntime.FileFilter{
 			{DisplayName: "Конфигурация sing-box (*.json)", Pattern: "*.json"},
@@ -236,13 +232,34 @@ func (a *ConfigAPI) PickConfigFile() PickConfigFilePayload {
 		},
 	})
 	if err != nil {
-		return PickConfigFilePayload{Error: apperr.From(op, apperr.CodeInternal, err)}
+		return PickConfigFilePayload{Error: err}
 	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return PickConfigFilePayload{Canceled: true}
 	}
 	return PickConfigFilePayload{Path: path}
+}
+
+// pickFile opens the native file dialog through the injected picker. The Wails
+// dialog panics when its context has no dialog handler attached, so a panic
+// becomes an error the user can read instead of a dead window.
+func (a *ConfigAPI) pickFile(op string, options wruntime.OpenDialogOptions) (path string, err *apperr.Error) {
+	pick := a.app.deps.OpenFileDialog
+	if pick == nil {
+		return "", apperr.New(apperr.CodeInternal, op, "the file picker is not available in this build")
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			path = ""
+			err = apperr.Newf(apperr.CodeInternal, op, "the file picker failed: %v", recovered)
+		}
+	}()
+	chosen, pickErr := pick(a.app.runtimeCtx(), options)
+	if pickErr != nil {
+		return "", apperr.From(op, apperr.CodeInternal, pickErr)
+	}
+	return chosen, nil
 }
 
 // ImportConfigFile creates a profile from a sing-box configuration on disk. The

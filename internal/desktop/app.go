@@ -70,9 +70,13 @@ type App struct {
 	profiles *profiles.Service
 	runtime  *appruntime.Supervisor
 
-	mu          sync.RWMutex
-	rootCtx     context.Context
-	cancelRoot  context.CancelFunc
+	mu         sync.RWMutex
+	rootCtx    context.Context
+	cancelRoot context.CancelFunc
+	// wailsCtx is the context Wails hands to OnStartup. Window-bound runtime calls
+	// (the native file dialog) need it: rootCtx is deliberately detached from
+	// Wails and carries no dialog handler.
+	wailsCtx    context.Context
 	shutting    bool
 	shutdownErr error
 
@@ -281,6 +285,7 @@ func (a *App) Services() (store *sqlite.Store, runtime *appruntime.Supervisor, c
 func (a *App) OnStartup(ctx context.Context) {
 	a.mu.Lock()
 	a.shutting = false
+	a.wailsCtx = ctx
 	a.mu.Unlock()
 
 	a.emitter.Attach(ctx)
@@ -302,6 +307,18 @@ func (a *App) OnStartup(ctx context.Context) {
 		})
 	}
 	go a.autoConnect()
+}
+
+// runtimeCtx returns the context the Wails runtime requires for window-bound
+// calls such as the native file dialog. Before startup, and in tests, it falls
+// back to the application context.
+func (a *App) runtimeCtx() context.Context {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.wailsCtx != nil {
+		return a.wailsCtx
+	}
+	return a.rootCtx
 }
 
 // autoConnect starts the last active profile once, if the user enabled it
