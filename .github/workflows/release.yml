@@ -59,10 +59,13 @@ jobs:
         run: |
           VER="${GITHUB_REF_NAME#v}"
           VER="${VER:-0.1.0}"
+          # macOS bundler rejects versions starting with 0 (0.2.0 -> 2.0)
+          MVER="$VER"
+          if [[ "$MVER" == 0.* ]]; then MVER="${MVER#0.}"; fi
           jpackage \
             --type dmg \
             --name SingBoxUI \
-            --app-version "$VER" \
+            --app-version "$MVER" \
             --vendor larffxx \
             --input target \
             --main-jar singbox-ui.jar \
