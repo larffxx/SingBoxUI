@@ -7,7 +7,7 @@
  * `LOG_VIEWER_RENDER_CAP` lines (newest kept) instead of growing with a chatty
  * sing-box build.
  */
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
@@ -47,32 +47,6 @@ describe('LogViewer', () => {
     expect(body.querySelectorAll('[data-level="DEBUG"]')).toHaveLength(0)
   })
 
-  // Radix Select drives its own typeahead/highlight timers, so the keyboard
-  // walk below outruns the default 5s budget in jsdom.
-  it('keeps the "and above" semantics when the level changes', async () => {
-    const user = userEvent.setup({ pointerEventsCheck: 0, delay: null })
-    render(<LogViewer records={RECORDS} initialLevel="ALL" />)
-
-    expect(screen.getByTestId('log-body').querySelectorAll('[data-level]')).toHaveLength(4)
-
-    const trigger = screen.getByRole('combobox', { name: /уровень/i })
-    trigger.focus()
-    await user.keyboard('{ArrowDown}')
-
-    const options = screen.getAllByRole('option')
-    const target = options.findIndex((option) => option.textContent === 'WARN и выше')
-    expect(target).toBeGreaterThan(0)
-    // Radix highlights the first option on open, so walk down to the filter.
-    for (let step = 0; step < target; step += 1) {
-      await user.keyboard('{ArrowDown}')
-    }
-    await user.keyboard('{Enter}')
-
-    expect(screen.getByTestId('log-body').querySelectorAll('[data-level]')).toHaveLength(2)
-    expect(screen.getByText(/устаревшая директива/)).toBeInTheDocument()
-    expect(screen.queryByText(/входящий канал поднят/)).not.toBeInTheDocument()
-  }, 20000)
-
   it('caps the rendered lines at the view cap and keeps the newest ones', () => {
     const overflow = 3
     const many = Array.from({ length: LOG_VIEWER_RENDER_CAP + overflow }, (_, index) =>
@@ -102,4 +76,27 @@ describe('LogViewer', () => {
     expect(screen.getByTestId('log-body').querySelectorAll('[data-level]')).toHaveLength(1)
     expect(screen.getByTestId('log-counter')).toHaveTextContent('скрыто фильтром: 3')
   })
+
+  // This test runs last and drives the select with fireEvent on purpose. Opening
+  // Radix's select leaves jsdom's user-event pipeline stalling for about ten
+  // seconds on every later interaction in the same file, and a synthesised
+  // userEvent click on the trigger pays that stall itself. Opened with a plain
+  // pointerdown and picked with a plain click, the test measures the "and above"
+  // semantics rather than the widget's event plumbing, and nothing follows it.
+  // The timeout is headroom for the two-core runners: mounting the popover is the
+  // slowest thing the suite does, and it still finishes in about a second here.
+  it('keeps the "and above" semantics when the level changes', () => {
+    render(<LogViewer records={RECORDS} initialLevel="ALL" />)
+
+    expect(screen.getByTestId('log-body').querySelectorAll('[data-level]')).toHaveLength(4)
+
+    const trigger = screen.getByRole('combobox', { name: /уровень/i })
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: 'mouse' })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('option', { name: 'WARN и выше' }))
+
+    expect(screen.getByTestId('log-body').querySelectorAll('[data-level]')).toHaveLength(2)
+    expect(screen.getByText(/устаревшая директива/)).toBeInTheDocument()
+    expect(screen.queryByText(/входящий канал поднят/)).not.toBeInTheDocument()
+  }, 15_000)
 })
