@@ -764,6 +764,30 @@ func TestLaunchRequestIsAbsoluteAndNeverElevatesWithoutTun(t *testing.T) {
 			t.Fatalf("%s = %q, want a path inside the data directory %q", name, value, dataDir)
 		}
 	}
+	// A path filepath.Clean would rewrite is refused by the privileged helper on
+	// both sides of the boundary. On Windows a literal "/" is exactly that — the
+	// run files must be joined onto the run directory, never concatenated to it
+	// with a slash — so this assertion only ever fails on a Windows run, which is
+	// why the suite runs there as well.
+	for name, value := range map[string]string{
+		"binaryPath": req.BinaryPath,
+		"configPath": req.ConfigPath,
+		"logPath":    req.LogPath,
+		"pidPath":    req.PIDPath,
+		"statusPath": req.StatusPath,
+		"workDir":    req.WorkDir,
+	} {
+		if cleaned := filepath.Clean(value); cleaned != value {
+			t.Errorf("%s = %q is not in its cleaned form %q: the helper refuses such a path", name, value, cleaned)
+		}
+	}
+	// The run files sit directly in the run directory, next to each other.
+	runDir := filepath.Dir(req.StatusPath)
+	for name, value := range map[string]string{"logPath": req.LogPath, "pidPath": req.PIDPath} {
+		if got := filepath.Dir(value); got != runDir {
+			t.Errorf("%s = %q, want it directly in the run directory %q", name, value, runDir)
+		}
+	}
 }
 
 func TestStopIsRefusedWhenNothingRuns(t *testing.T) {
@@ -876,5 +900,34 @@ func TestMissingEmitterStillWorks(t *testing.T) {
 	}
 	if !h.sup.Running() {
 		t.Fatal("Running() = false without an emitter")
+	}
+}
+
+// TestStartFailureCarriesTheWrappedReason asserts the reason a launch was refused
+// survives into the status the interface reads and into the log tail a user is
+// asked for. A configuration check that fails has its decoder output; a launch
+// that never reached a process has only its error chain, and dropping it leaves
+// "could not start sing-box" as the whole report.
+func TestStartFailureCarriesTheWrappedReason(t *testing.T) {
+	opts := defaultOptions()
+	opts.requiresTun = true
+	opts.launchErr = apperr.Wrap(apperr.CodeRuntimeStartFailed, "privrun",
+		"the privileged helper refused the request as invalid",
+		errors.New("--log must not contain \"..\", \".\" or a trailing separator"))
+	h := newHarness(t, opts)
+
+	err := h.sup.StartProfile(context.Background(), "p-1")
+	if err == nil {
+		t.Fatal("StartProfile() = nil, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "--log must not contain") {
+		t.Errorf("the returned error = %q, want it to carry the reason the helper refused", err)
+	}
+	status := h.sup.Status()
+	if status.State != domruntime.StateFailed {
+		t.Fatalf("state = %s, want FAILED", status.State)
+	}
+	if !strings.Contains(status.LastError, "--log must not contain") {
+		t.Errorf("LastError = %q, want the wrapped reason, not just the notice", status.LastError)
 	}
 }

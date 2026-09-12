@@ -2,6 +2,7 @@ package privhelper
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
@@ -9,6 +10,22 @@ import (
 
 	"github.com/larffxx/singboxui/internal/privilege"
 )
+
+// dataRoot is the synthetic application data directory of the pure string tests.
+// It is absolute on the platform the suite runs on: "/d" is not an absolute path
+// on Windows, so a fixture built from it would be refused for the wrong reason.
+func dataRoot() string {
+	if runtime.GOOS == "windows" {
+		return `C:\d`
+	}
+	return "/d"
+}
+
+// outsidePath is an absolute path outside every data directory the tests use.
+func outsidePath(t *testing.T, name string) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), name)
+}
 
 // TestExecutableNamePerGOOS covers the private copy of the sing-box executable
 // name: the helper may not import internal/singbox, so the name is asserted here.
@@ -26,18 +43,19 @@ func TestExecutableNamePerGOOS(t *testing.T) {
 
 // TestSpecFromRequestCarriesEveryField ties a port request to a data directory.
 func TestSpecFromRequestCarriesEveryField(t *testing.T) {
+	root := dataRoot()
 	req := privilege.Request{
-		BinaryPath: "/d/bin/sing-box",
-		ConfigPath: "/d/config/active.json",
-		WorkDir:    "/d/run",
-		LogPath:    "/d/run/singbox.log",
-		PIDPath:    "/d/run/singbox.pid",
-		StatusPath: "/d/run/singbox.status",
+		BinaryPath: filepath.Join(root, "bin", "sing-box"),
+		ConfigPath: filepath.Join(root, "config", "active.json"),
+		WorkDir:    filepath.Join(root, "run"),
+		LogPath:    filepath.Join(root, "run", "singbox.log"),
+		PIDPath:    filepath.Join(root, "run", "singbox.pid"),
+		StatusPath: filepath.Join(root, "run", "singbox.status"),
 		Reason:     "SingBoxUI needs to start its tunnel",
 	}
-	got := SpecFromRequest(req, "/d")
+	got := SpecFromRequest(req, root)
 	want := Spec{
-		DataDir:    "/d",
+		DataDir:    root,
 		BinaryPath: req.BinaryPath,
 		ConfigPath: req.ConfigPath,
 		WorkDir:    req.WorkDir,
@@ -54,12 +72,12 @@ func TestSpecFromRequestCarriesEveryField(t *testing.T) {
 // TestChildWorkDirFallsBackToTheConfigurationDirectory keeps a request without an
 // explicit working directory from running in the helper's own directory.
 func TestChildWorkDirFallsBackToTheConfigurationDirectory(t *testing.T) {
-	spec := Spec{ConfigPath: "/d/config/active.json"}
-	if got, want := spec.ChildWorkDir(), "/d/config"; got != want {
+	spec := Spec{ConfigPath: filepath.Join(dataRoot(), "config", "active.json")}
+	if got, want := spec.ChildWorkDir(), filepath.Join(dataRoot(), "config"); got != want {
 		t.Errorf("ChildWorkDir() = %q, want %q", got, want)
 	}
-	spec.WorkDir = "/d/run"
-	if got, want := spec.ChildWorkDir(), "/d/run"; got != want {
+	spec.WorkDir = filepath.Join(dataRoot(), "run")
+	if got, want := spec.ChildWorkDir(), spec.WorkDir; got != want {
 		t.Errorf("ChildWorkDir() = %q, want %q", got, want)
 	}
 }
@@ -100,13 +118,13 @@ func TestValidateRefusesRequestsOutsideTheContract(t *testing.T) {
 		},
 		{
 			name:   "binary outside the data directory",
-			mutate: func(s *Spec) { s.BinaryPath = "/tmp/sing-box" },
+			mutate: func(s *Spec) { s.BinaryPath = outsidePath(t, "sing-box") },
 			want:   "outside the application data directory",
 		},
 		{
 			name: "binary with the wrong name",
 			mutate: func(s *Spec) {
-				s.BinaryPath = writeFile(t, l.dataDir+"/bin/other", "x")
+				s.BinaryPath = writeFile(t, filepath.Join(l.dataDir, "bin", "other"), "x")
 			},
 			want: "must be the sing-box executable",
 		},
@@ -114,7 +132,7 @@ func TestValidateRefusesRequestsOutsideTheContract(t *testing.T) {
 			name: "binary that is not executable",
 			mutate: func(s *Spec) {
 				// A sing-box under the right name, but without the executable bit.
-				s.BinaryPath = writeFile(t, l.dataDir+"/bin/1.11.0/sing-box", "x")
+				s.BinaryPath = writeFile(t, filepath.Join(l.dataDir, "bin", "1.11.0", "sing-box"), "x")
 				if err := os.Chmod(s.BinaryPath, 0o600); err != nil {
 					t.Fatalf("chmod %s: %v", s.BinaryPath, err)
 				}
@@ -124,37 +142,42 @@ func TestValidateRefusesRequestsOutsideTheContract(t *testing.T) {
 		},
 		{
 			name:   "work directory that does not exist",
-			mutate: func(s *Spec) { s.WorkDir = l.dataDir + "/absent" },
+			mutate: func(s *Spec) { s.WorkDir = filepath.Join(l.dataDir, "absent") },
 			want:   "--work-dir is not usable",
 		},
 		{
 			name: "work directory that is a file",
 			mutate: func(s *Spec) {
-				s.WorkDir = writeFile(t, l.dataDir+"/run/not-a-directory", "x")
+				s.WorkDir = writeFile(t, filepath.Join(l.dataDir, "run", "not-a-directory"), "x")
 			},
 			want: "--work-dir is not a directory",
 		},
 		{
 			name: "configuration that is not json",
 			mutate: func(s *Spec) {
-				s.ConfigPath = writeFile(t, l.dataDir+"/config/active.yaml", "log: {}")
+				s.ConfigPath = writeFile(t, filepath.Join(l.dataDir, "config", "active.yaml"), "log: {}")
 			},
 			want: "must be a .json file",
 		},
 		{
 			name:   "configuration outside the data directory",
-			mutate: func(s *Spec) { s.ConfigPath = "/tmp/active.json" },
+			mutate: func(s *Spec) { s.ConfigPath = outsidePath(t, "active.json") },
 			want:   "outside the application data directory",
 		},
 		{
-			name:   "path that is not in its shortest form",
-			mutate: func(s *Spec) { s.LogPath = l.dataDir + "/run/../run/singbox.log" },
-			want:   "must not contain",
+			name: "path that is not in its shortest form",
+			// Built by hand: filepath.Join would clean the ".." away and the
+			// refusal this case is about would never be reached.
+			mutate: func(s *Spec) {
+				sep := string(filepath.Separator)
+				s.LogPath = l.dataDir + sep + "run" + sep + ".." + sep + "run" + sep + "singbox.log"
+			},
+			want: "must not contain",
 		},
 		{
 			name:   "path written into a directory that does not exist",
-			mutate: func(s *Spec) { s.LogPath = l.dataDir + "/logs/singbox.log" },
-			want:   "no such file or directory",
+			mutate: func(s *Spec) { s.LogPath = filepath.Join(l.dataDir, "logs", "singbox.log") },
+			want:   "resolve",
 		},
 		{
 			name:   "log path that is a directory",
@@ -163,7 +186,7 @@ func TestValidateRefusesRequestsOutsideTheContract(t *testing.T) {
 		},
 		{
 			name:   "control character in a path",
-			mutate: func(s *Spec) { s.PIDPath = l.dataDir + "/run/singbox\n.pid" },
+			mutate: func(s *Spec) { s.PIDPath = filepath.Join(l.dataDir, "run") + "\nsingbox.pid" },
 			want:   "control character",
 		},
 		{
@@ -318,7 +341,7 @@ func TestStopRequestValidateRefusesAPathOutsideTheDataDirectory(t *testing.T) {
 		},
 		{
 			name: "pid file outside the data directory",
-			req:  StopRequest{DataDir: l.dataDir, PIDPath: "/tmp/singbox.pid"},
+			req:  StopRequest{DataDir: l.dataDir, PIDPath: outsidePath(t, "singbox.pid")},
 			want: "outside the application data directory",
 		},
 		{
@@ -347,12 +370,12 @@ func TestValidateRefusesASymlinkedEscape(t *testing.T) {
 	}
 	l := newLayout(t)
 	outside := t.TempDir()
-	link := l.dataDir + "/escape"
+	link := filepath.Join(l.dataDir, "escape")
 	if err := os.Symlink(outside, link); err != nil {
 		t.Fatalf("create the symlink: %v", err)
 	}
 	spec := l.specOf("")
-	spec.LogPath = link + "/singbox.log"
+	spec.LogPath = filepath.Join(link, "singbox.log")
 	err := spec.Validate()
 	if err == nil {
 		t.Fatalf("Validate(%+v) = nil, want a refusal: the log path escapes through a symlink", spec)

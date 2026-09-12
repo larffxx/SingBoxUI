@@ -30,68 +30,174 @@ const maxExtractedEntry = 512 << 20
 // absolute path on Windows even though it is not rooted at "/".
 var windowsDrivePrefix = regexp.MustCompile(`^[A-Za-z]:`)
 
+// Bundle is what an official release archive yields: the sing-box executable and
+// the libraries it loads at run time, all of them written beside each other.
+type Bundle struct {
+	// Executable is the absolute path of the extracted sing-box executable.
+	Executable string
+	// Companions are the absolute paths of the companion libraries found in the
+	// archive, in the order they were requested. It is empty when the archive
+	// carries none.
+	Companions []string
+}
+
+// CompanionFiles returns the libraries the official archive for a GOOS ships
+// beside the executable and that must be installed together with it, because
+// sing-box loads them from its own directory at run time.
+//
+// The Windows archive carries libcronet.dll: the naive outbound loads it when a
+// profile uses that protocol, and an installation missing it silently cannot run
+// such a profile. The macOS archive carries the executable and LICENSE only.
+func CompanionFiles(goos string) []string {
+	if goos == "windows" {
+		return []string{"libcronet.dll"}
+	}
+	return nil
+}
+
 // ExtractBinary extracts the sing-box executable from an official release
-// archive and returns its path inside destDir.
+// archive and returns its path inside destDir, without any companion file.
+//
+// Most callers want ExtractBundle, which installs the libraries the executable
+// needs as well.
+func ExtractBinary(archivePath, destDir, executableName string) (string, error) {
+	bundle, err := ExtractBundle(archivePath, destDir, executableName, nil)
+	if err != nil {
+		return "", err
+	}
+	return bundle.Executable, nil
+}
+
+// ExtractBundle extracts the sing-box executable and the named companion files
+// from an official release archive into destDir, and returns where they landed.
 //
 // The archive is untrusted input, so every entry is validated before anything
 // is written: absolute paths, "..", drive-qualified names, backslash separators,
 // symlinks, hard links and device nodes abort the extraction, and the archive
-// must contain exactly one entry named executableName. Other regular files are
-// not written out — the official tarballs also carry LICENSE, and the Windows
-// zip a helper DLL — so the installation can never place anything but the
-// executable it verified (spec §21).
+// must contain exactly one entry named executableName. A companion is written
+// only when it is named in companions, is present exactly once, and is a regular
+// file; everything else — the LICENSE an official tarball carries, a helper DLL
+// nobody asked for — is skipped, so the installation can never place anything but
+// files this function was told to verify (spec §21). A companion that is missing
+// from an archive is not an error: the executable is what was verified, and
+// sing-box works without a library only an optional outbound needs.
 //
-// The executable is written through internal/atomicfile, so a crash mid-extract
+// Every file is written through internal/atomicfile, so a crash mid-extract
 // cannot leave a half-written binary behind for the version probe to run.
-func ExtractBinary(archivePath, destDir, executableName string) (string, error) {
+func ExtractBundle(archivePath, destDir, executableName string, companions []string) (Bundle, error) {
 	const op = "singbox.ExtractBinary"
 	switch {
 	case strings.TrimSpace(archivePath) == "":
-		return "", apperr.New(apperr.CodeInvalidArgument, op, "an archive path is required")
+		return Bundle{}, apperr.New(apperr.CodeInvalidArgument, op, "an archive path is required")
 	case strings.TrimSpace(destDir) == "":
-		return "", apperr.New(apperr.CodeInvalidArgument, op, "a destination directory is required")
+		return Bundle{}, apperr.New(apperr.CodeInvalidArgument, op, "a destination directory is required")
 	case executableName == "" || filepath.Base(executableName) != executableName:
-		return "", apperr.Newf(apperr.CodeInvalidArgument, op,
+		return Bundle{}, apperr.Newf(apperr.CodeInvalidArgument, op,
 			"the executable name %q must be a bare file name", executableName)
+	}
+	wanted := make([]string, 0, len(companions))
+	seen := make(map[string]bool, len(companions)+1)
+	seen[executableName] = true
+	for _, companion := range companions {
+		name := strings.TrimSpace(companion)
+		switch {
+		case name == "":
+			return Bundle{}, apperr.New(apperr.CodeInvalidArgument, op, "a companion file name is empty")
+		case filepath.Base(name) != name:
+			return Bundle{}, apperr.Newf(apperr.CodeInvalidArgument, op,
+				"the companion name %q must be a bare file name", name)
+		case seen[name]:
+			return Bundle{}, apperr.Newf(apperr.CodeInvalidArgument, op,
+				"%q was requested twice", name)
+		}
+		seen[name] = true
+		wanted = append(wanted, name)
 	}
 
 	format, err := detectFormat(archivePath)
 	if err != nil {
-		return "", err
+		return Bundle{}, err
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return "", apperr.Wrap(apperr.CodeBinaryInstallFailed, op,
+		return Bundle{}, apperr.Wrap(apperr.CodeBinaryInstallFailed, op,
 			"cannot create the destination directory", err)
 	}
 
-	candidates, err := scanArchive(archivePath, format, executableName)
+	found, err := scanArchive(archivePath, format, executableName, wanted)
 	if err != nil {
-		return "", err
+		return Bundle{}, err
 	}
+	candidates := found[executableName]
 	switch len(candidates) {
 	case 0:
-		return "", apperr.Newf(apperr.CodeBinaryInstallFailed, op,
+		return Bundle{}, apperr.Newf(apperr.CodeBinaryInstallFailed, op,
 			"the archive %s does not contain %s", filepath.Base(archivePath), executableName)
 	case 1:
 	default:
-		return "", apperr.Newf(apperr.CodeBinaryInstallFailed, op,
+		return Bundle{}, apperr.Newf(apperr.CodeBinaryInstallFailed, op,
 			"the archive %s contains %d entries named %s; exactly one is expected",
 			filepath.Base(archivePath), len(candidates), executableName)
+	}
+	// A companion has to sit next to the executable: that is the only place
+	// sing-box looks for the library, and it keeps a second copy elsewhere in the
+	// archive from being installed as if it belonged to this binary.
+	exeDir := path.Dir(candidates[0])
+	companionEntry := make(map[string]string, len(wanted)-1)
+	for _, name := range wanted {
+		if name == executableName {
+			continue
+		}
+		matches := entriesInDir(found[name], exeDir)
+		if len(matches) > 1 {
+			return Bundle{}, apperr.Newf(apperr.CodeBinaryInstallFailed, op,
+				"the archive %s contains %d entries named %s next to %s; at most one is expected",
+				filepath.Base(archivePath), len(matches), name, executableName)
+		}
+		if len(matches) == 1 {
+			companionEntry[name] = matches[0]
+		}
 	}
 
 	data, err := readArchiveEntry(archivePath, format, candidates[0])
 	if err != nil {
-		return "", err
+		return Bundle{}, err
 	}
-	destination, err := filepath.Abs(filepath.Join(destDir, executableName))
+	executable, err := writeExtracted(destDir, executableName, data, 0o755)
 	if err != nil {
-		return "", apperr.Wrap(apperr.CodeBinaryInstallFailed, op,
+		return Bundle{}, err
+	}
+	bundle := Bundle{Executable: executable}
+	for _, name := range wanted {
+		entry, ok := companionEntry[name]
+		if !ok {
+			continue
+		}
+		content, err := readArchiveEntry(archivePath, format, entry)
+		if err != nil {
+			return Bundle{}, err
+		}
+		// A library is not executable: the mode it is installed with says so.
+		path, err := writeExtracted(destDir, name, content, 0o644)
+		if err != nil {
+			return Bundle{}, err
+		}
+		bundle.Companions = append(bundle.Companions, path)
+	}
+	return bundle, nil
+}
+
+// writeExtracted writes one validated archive entry into destDir.
+func writeExtracted(destDir, name string, data []byte, mode os.FileMode) (string, error) {
+	destination, err := filepath.Abs(filepath.Join(destDir, name))
+	if err != nil {
+		return "", apperr.Wrap(apperr.CodeBinaryInstallFailed, "singbox.ExtractBinary",
 			"cannot resolve the destination path", err)
 	}
-	// The archive's own mode is ignored: an executable we installed is executable.
-	if err := atomicfile.Write(destination, data, 0o755); err != nil {
-		return "", apperr.Wrap(apperr.CodeBinaryInstallFailed, op,
-			"cannot write the extracted executable", err)
+	// The archive's own mode is ignored: an executable we installed is executable,
+	// and a library we installed is not.
+	if err := atomicfile.Write(destination, data, mode); err != nil {
+		return "", apperr.Wrap(apperr.CodeBinaryInstallFailed, "singbox.ExtractBinary",
+			"cannot write the extracted file", err)
 	}
 	return destination, nil
 }
@@ -131,14 +237,19 @@ func detectFormat(archivePath string) (string, error) {
 	}
 }
 
-// scanArchive validates every entry and returns the names of the entries that
-// match executableName.
+// scanArchive validates every entry and returns, per wanted name, the entries
+// that match it.
 //
 // Validation is deliberately done on a first pass over the whole archive: an
 // unsafe entry anywhere is a reason to refuse the download, not just a reason to
 // skip one file.
-func scanArchive(archivePath, format, executableName string) ([]string, error) {
-	var candidates []string
+func scanArchive(archivePath, format, executableName string, companions []string) (map[string][]string, error) {
+	wanted := make(map[string]bool, len(companions)+1)
+	wanted[executableName] = true
+	for _, name := range companions {
+		wanted[name] = true
+	}
+	found := make(map[string][]string, len(wanted))
 	visit := func(entryName string, entry archiveEntry) error {
 		clean, err := safeEntryName(entryName)
 		if err != nil {
@@ -151,15 +262,28 @@ func scanArchive(archivePath, format, executableName string) ([]string, error) {
 		if entry.directory {
 			return nil
 		}
-		if path.Base(clean) == executableName {
-			candidates = append(candidates, clean)
+		if base := path.Base(clean); wanted[base] {
+			found[base] = append(found[base], clean)
 		}
 		return nil
 	}
 	if err := walkArchive(archivePath, format, visit); err != nil {
 		return nil, err
 	}
-	return candidates, nil
+	return found, nil
+}
+
+// entriesInDir returns the entries of one name that live in the directory the
+// executable sits in. An official archive keeps its files in one directory, so a
+// companion found anywhere else is not the library that belongs to this binary.
+func entriesInDir(entries []string, dir string) []string {
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if path.Dir(entry) == dir {
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 // readArchiveEntry reads one validated entry by name.

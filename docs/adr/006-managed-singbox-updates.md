@@ -21,7 +21,10 @@ Own the binary channel in `internal/app/binary` over `internal/singbox.Client`.
   used as a secondary source if one ever appears (§21). A mismatch aborts with
   `BINARY_CHECKSUM_FAILED`.
 * **Safe extraction.** `ExtractBinary` extracts exactly the one sing-box executable from a `.tar.gz`
-  or `.zip`; path traversal, symlinks, absolute paths and extra entries are refused.
+  or `.zip`; path traversal, symlinks, absolute paths and extra entries are refused. `ExtractBundle`
+  additionally installs the companion libraries the archive ships beside the executable and that
+  sing-box loads from its own directory — `libcronet.dll` in the Windows archive, used by the naive
+  outbound — from a fixed allow-list, never a file the archive chose.
 * **Probe, then atomically install.** The downloaded binary must report the expected version; it is
   installed by atomic rename into `<dataDir>/bin/<version>/`, with the previous binary and version
   retained in the `managed_binary` row for rollback. Failed verification rolls back.

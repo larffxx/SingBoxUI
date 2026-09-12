@@ -2,6 +2,7 @@ package binary
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -1083,3 +1084,102 @@ var (
 	_ = runtime.GOOS
 	_ = errors.Is
 )
+
+// zipArchive builds the archive shape upstream publishes for Windows.
+func zipArchive(t *testing.T, entries map[string][]byte) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	names := make([]string, 0, len(entries))
+	for name := range entries {
+		names = append(names, name)
+	}
+	for i := 1; i < len(names); i++ {
+		for j := i; j > 0 && names[j] < names[j-1]; j-- {
+			names[j], names[j-1] = names[j-1], names[j]
+		}
+	}
+	for _, name := range names {
+		header := &zip.FileHeader{Name: name, Method: zip.Deflate}
+		handle, err := writer.CreateHeader(header)
+		if err != nil {
+			t.Fatalf("zip member %s: %v", name, err)
+		}
+		if _, err := handle.Write(entries[name]); err != nil {
+			t.Fatalf("zip body %s: %v", name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("closing the zip writer: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+// TestInstallStableUpdateInstallsTheWindowsLibraries covers the platform-specific
+// half of the installation: the Windows archive carries libcronet.dll beside
+// sing-box.exe, the naive outbound loads it from that directory at run time, and
+// an installation that kept only the executable could not run such a profile.
+func TestInstallStableUpdateInstallsTheWindowsLibraries(t *testing.T) {
+	h := newHarness(t)
+	h.svc.deps.GOOS, h.svc.deps.GOARCH = "windows", "amd64"
+	h.svc.deps.Probe = func(context.Context, string) (singbox.Version, error) {
+		return mustVersion(t, "1.15.0"), nil
+	}
+	ctx := context.Background()
+	h.setManagedBinary(t, "1.14.0", filepath.Join(h.paths.BinDir, "1.14.0", "sing-box.exe"), []byte("managed 1.14.0"))
+
+	const asset = "sing-box-1.15.0-windows-amd64.zip"
+	payload := []byte("MZ fake sing-box 1.15.0")
+	archive := zipArchive(t, map[string][]byte{
+		"sing-box-1.15.0-windows-amd64/":              nil,
+		"sing-box-1.15.0-windows-amd64/LICENSE":       []byte("GPL-3.0"),
+		"sing-box-1.15.0-windows-amd64/libcronet.dll": []byte("cronet library"),
+		"sing-box-1.15.0-windows-amd64/sing-box.exe":  payload,
+	})
+	h.publish(t, []ghRelease{h.release("1.15.0", false, asset)}, assetBody{name: asset, body: archive})
+
+	result, err := h.svc.InstallStableUpdate(ctx)
+	if err != nil {
+		t.Fatalf("InstallStableUpdate() = %v, want nil", err)
+	}
+	target := h.paths.ManagedBinaryPath("1.15.0", "sing-box.exe")
+	if result.Path != target {
+		t.Fatalf("Path = %q, want %q", result.Path, target)
+	}
+	installed, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("reading the installed executable: %v", err)
+	}
+	if !bytes.Equal(installed, payload) {
+		t.Errorf("installed %q, want the archive's executable", installed)
+	}
+	library := filepath.Join(filepath.Dir(target), "libcronet.dll")
+	content, err := os.ReadFile(library)
+	if err != nil {
+		t.Fatalf("the library sing-box loads on Windows is not installed beside the executable: %v", err)
+	}
+	if string(content) != "cronet library" {
+		t.Errorf("installed library = %q, want the archive's copy", content)
+	}
+	// The license is not installed: only the files the archive was asked about.
+	if entries := readDirNames(t, filepath.Dir(target)); len(entries) != 2 {
+		t.Errorf("the version directory holds %v, want the executable and the library", entries)
+	}
+	// The staging directory is gone: nothing half-installed stays behind.
+	if _, err := os.Stat(filepath.Join(h.paths.BinDir, "staging-1.15.0")); !os.IsNotExist(err) {
+		t.Errorf("staging directory still present (err = %v)", err)
+	}
+}
+
+func readDirNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
+}

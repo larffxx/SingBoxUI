@@ -69,6 +69,30 @@ jobs:
       - name: Linux stays an explicit unsupported target
         run: GOOS=linux GOARCH=amd64 go build ./internal/platform/...
 
+  go-windows:
+    # The Windows side of the application — the platform adapter, the privileged
+    # helper, the elevation call, every path that crosses the privilege boundary —
+    # only ever runs on a Windows machine, and cross-compiling proves that it
+    # compiles, nothing more. A path built with a literal "/" is legal on macOS and
+    # refused by Windows, so the suite runs there as well: without this job a
+    # Windows-only defect is found by the first user who installs a release.
+    name: Go — test and vet on Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: go test
+        run: go test . ./cmd/... ./internal/...
+
+      - name: go vet
+        run: go vet . ./cmd/... ./internal/...
+
   frontend:
     name: Frontend — lint, typecheck, test, build
     runs-on: ubuntu-latest

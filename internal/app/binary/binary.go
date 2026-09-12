@@ -447,10 +447,20 @@ func (s *Service) InstallStableUpdate(ctx context.Context) (InstallResult, error
 	if err := ensureDir(staging); err != nil {
 		return InstallResult{}, err
 	}
-	extracted, err := singbox.ExtractBinary(archivePath, staging, singbox.ExecutableName(s.deps.GOOS))
+	// The libraries the archive ships beside the executable are installed with
+	// it: on Windows the naive outbound loads libcronet.dll from the directory of
+	// sing-box.exe, and an installation without it cannot run such a profile at
+	// all (the DLL was silently dropped before).
+	expectedCompanions := singbox.CompanionFiles(s.deps.GOOS)
+	bundle, err := singbox.ExtractBundle(archivePath, staging, singbox.ExecutableName(s.deps.GOOS), expectedCompanions)
 	if err != nil {
 		return InstallResult{}, err
 	}
+	if len(expectedCompanions) > 0 && len(bundle.Companions) == 0 {
+		s.logger.Warn("the release archive carries none of the libraries this platform needs beside sing-box",
+			"operation", op, "platform", s.deps.GOOS, "expected", expectedCompanions)
+	}
+	extracted := bundle.Executable
 	s.emit(events.BinaryProgress, map[string]any{"stage": "verify", "version": update.Version})
 	probed, err := s.deps.Probe(ctx, extracted)
 	if err != nil {
@@ -492,6 +502,19 @@ func (s *Service) InstallStableUpdate(ctx context.Context) (InstallResult, error
 	}
 	if err := moveFile(extracted, target); err != nil {
 		return InstallResult{}, apperr.Wrap(apperr.CodeBinaryInstallFailed, op, "the new binary could not be installed", err)
+	}
+	// The companion libraries move into the same version directory, which is the
+	// only place sing-box looks for them. A library that fails to move rolls the
+	// binary back: an installation that half-arrived is worse than the previous
+	// version. The library itself is left behind on rollback, which is harmless —
+	// it belongs to the version this directory holds either way.
+	for _, companion := range bundle.Companions {
+		destination := filepath.Join(versionDir, filepath.Base(companion))
+		if err := moveFile(companion, destination); err != nil {
+			s.rollbackBinary(ctx, previous, target, previousPath)
+			return InstallResult{}, apperr.Wrap(apperr.CodeBinaryInstallFailed, op,
+				"the library "+filepath.Base(companion)+" shipped with sing-box could not be installed", err)
+		}
 	}
 	if err := os.Chmod(target, 0o755); err != nil {
 		s.rollbackBinary(ctx, previous, target, previousPath)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -56,7 +57,7 @@ func TestRunHelpPrintsTheUsage(t *testing.T) {
 func TestRunStartRefusesARequestOutsideTheDataDirectory(t *testing.T) {
 	l := newLayout(t)
 	spec := l.specOf("")
-	spec.BinaryPath = "/tmp/sing-box"
+	spec.BinaryPath = filepath.Join(t.TempDir(), "sing-box")
 	argv := spec.StartArgv(helperPath)
 
 	var stdout, stderr bytes.Buffer

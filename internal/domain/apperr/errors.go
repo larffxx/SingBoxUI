@@ -147,6 +147,62 @@ func DetailsOf(err error) []string {
 	return nil
 }
 
+// CauseMessages returns the messages of the errors wrapped below err, outermost
+// first.
+//
+// A typed Error carries only its own Message across the process boundary: the
+// cause it wraps is unexported and does not survive JSON encoding, so a surface
+// that renders or logs a typed error has to add the chain itself. Without this,
+// "could not start sing-box" reaches the user while "the helper refused the path
+// --log" — the only actionable part — is dropped.
+func CauseMessages(err error) []string {
+	var out []string
+	seen := make(map[string]bool, 4)
+	for cause := errors.Unwrap(err); cause != nil; cause = errors.Unwrap(cause) {
+		message := describeCause(cause)
+		if message == "" || seen[message] {
+			continue
+		}
+		seen[message] = true
+		out = append(out, message)
+	}
+	return out
+}
+
+// describeCause renders one link of a chain: a typed error contributes its own
+// message only, so the chain reads as one reason per line instead of nesting the
+// whole text of every level inside the first.
+func describeCause(err error) string {
+	if typed, ok := As(err); ok && typed.Message != "" {
+		return strings.TrimSpace(typed.Message)
+	}
+	return strings.TrimSpace(err.Error())
+}
+
+// Explain renders a whole error chain as one line: the user-facing message, its
+// details and every reason it was wrapped with. It is what a log line or a status
+// field should carry, because it is the only form in which the reason survives.
+func Explain(err error) string {
+	if err == nil {
+		return ""
+	}
+	var parts []string
+	if typed, ok := As(err); ok {
+		if typed.Message != "" {
+			parts = append(parts, typed.Message)
+		}
+		parts = append(parts, typed.Details...)
+	}
+	parts = append(parts, CauseMessages(err)...)
+	switch len(parts) {
+	case 0:
+		return err.Error()
+	case 1:
+		return parts[0]
+	}
+	return strings.Join(parts, ": ")
+}
+
 // IsCode reports whether err carries the given code.
 func IsCode(err error, code Code) bool { return CodeOf(err) == code }
 

@@ -3,6 +3,7 @@ package apperr
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -273,5 +274,34 @@ func TestFromPreservesTypedErrorsAndWrapsOthers(t *testing.T) {
 	wrapped := fmt.Errorf("outer: %w", typed)
 	if from := From("other", CodeInternal, wrapped); from != typed {
 		t.Errorf("From(wrapped typed) = %p, want the inner typed error %p", from, typed)
+	}
+}
+
+// TestExplainRendersTheWholeChain pins the diagnostic form: a typed error carries
+// only its own message across the process boundary, so the reason a call failed is
+// only visible if the chain is rendered into one line for the log and the status.
+func TestExplainRendersTheWholeChain(t *testing.T) {
+	t.Parallel()
+
+	inner := errors.New("--log must not contain \"..\", \".\" or a trailing separator")
+	middle := Wrap(CodeRuntimeStartFailed, "privrun",
+		"the privileged helper refused the request as invalid", inner)
+	outer := Wrap(CodeRuntimeStartFailed, "runtime.StartProfile", "could not start sing-box", middle)
+
+	got := Explain(outer)
+	for _, want := range []string{
+		"could not start sing-box",
+		"the privileged helper refused the request as invalid",
+		"--log must not contain",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Explain() = %q, want it to carry %q", got, want)
+		}
+	}
+	if causes := CauseMessages(outer); len(causes) != 2 {
+		t.Errorf("CauseMessages() = %q, want the two wrapped reasons", causes)
+	}
+	if causes := CauseMessages(inner); len(causes) != 0 {
+		t.Errorf("CauseMessages(a plain error) = %q, want none", causes)
 	}
 }

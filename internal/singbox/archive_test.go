@@ -626,3 +626,200 @@ func TestErrStopArchiveIsDistinct(t *testing.T) {
 		t.Error("errStopArchive must not be io.EOF")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// companion libraries (the Windows archive ships libcronet.dll beside the exe)
+
+// windowsArchive is the real Windows zip layout: the executable, the library the
+// naive outbound loads from the directory of sing-box.exe, and the license.
+func windowsArchive() []archiveItem {
+	return []archiveItem{
+		{name: "sing-box-1.14.0-windows-amd64/", mode: 0o755},
+		{name: "sing-box-1.14.0-windows-amd64/LICENSE", content: "license\n"},
+		{name: "sing-box-1.14.0-windows-amd64/libcronet.dll", content: "cronet bytes"},
+		{name: "sing-box-1.14.0-windows-amd64/sing-box.exe", content: "MZ", mode: 0o755},
+	}
+}
+
+// TestExtractBundleInstallsCompanions asserts the library sing-box loads at run
+// time is installed next to the executable: without it the naive outbound cannot
+// work at all, and the file used to be dropped silently (spec §21).
+func TestExtractBundleInstallsCompanions(t *testing.T) {
+	root := t.TempDir()
+	archivePath := filepath.Join(root, "sing-box-1.14.0-windows-amd64.zip")
+	writeZip(t, archivePath, windowsArchive())
+	destDir := filepath.Join(root, "bin", "1.14.0")
+
+	bundle, err := ExtractBundle(archivePath, destDir, "sing-box.exe", CompanionFiles("windows"))
+	if err != nil {
+		t.Fatalf("ExtractBundle() failed: %v", err)
+	}
+	if want := filepath.Join(destDir, "sing-box.exe"); bundle.Executable != want {
+		t.Errorf("Executable = %q, want %q", bundle.Executable, want)
+	}
+	if len(bundle.Companions) != 1 {
+		t.Fatalf("Companions = %v, want the single library of the archive", bundle.Companions)
+	}
+	if want := filepath.Join(destDir, "libcronet.dll"); bundle.Companions[0] != want {
+		t.Errorf("Companions[0] = %q, want %q", bundle.Companions[0], want)
+	}
+	raw, err := os.ReadFile(bundle.Companions[0])
+	if err != nil {
+		t.Fatalf("cannot read the installed library: %v", err)
+	}
+	if string(raw) != "cronet bytes" {
+		t.Errorf("the installed library holds %q, want the archive content", raw)
+	}
+	// A library is not executable, and the license is never written: an
+	// installation only places files it was told to verify (spec §21).
+	info, err := os.Stat(bundle.Companions[0])
+	if err != nil {
+		t.Fatalf("cannot stat the installed library: %v", err)
+	}
+	if info.Mode().Perm()&0o111 != 0 {
+		t.Errorf("mode = %s, want a library without the executable bit", info.Mode())
+	}
+	if entries := dirEntries(t, destDir); len(entries) != 2 {
+		t.Errorf("destDir contains %v, want the executable and the library only", entries)
+	}
+}
+
+// TestExtractBundleWithoutCompanionsWritesTheExecutableOnly pins the behaviour of
+// ExtractBinary: the same Windows archive it always handled installs one file.
+func TestExtractBundleWithoutCompanionsWritesTheExecutableOnly(t *testing.T) {
+	root := t.TempDir()
+	archivePath := filepath.Join(root, "sing-box-1.14.0-windows-amd64.zip")
+	writeZip(t, archivePath, windowsArchive())
+	destDir := filepath.Join(root, "bin", "1.14.0")
+
+	bundle, err := ExtractBundle(archivePath, destDir, "sing-box.exe", nil)
+	if err != nil {
+		t.Fatalf("ExtractBundle() failed: %v", err)
+	}
+	if len(bundle.Companions) != 0 {
+		t.Errorf("Companions = %v, want none without a requested list", bundle.Companions)
+	}
+	if entries := dirEntries(t, destDir); len(entries) != 1 {
+		t.Errorf("destDir contains %v, want the executable only", entries)
+	}
+}
+
+// TestExtractBundleRefusesBadCompanionRequests covers the ways a companion must
+// not be picked: a path instead of a name, a name requested twice, a library that
+// is not next to the executable, and two candidates for one name.
+func TestExtractBundleRefusesBadCompanionRequests(t *testing.T) {
+	tests := []struct {
+		name       string
+		items      []archiveItem
+		companions []string
+		wantCode   apperr.Code
+		wantErrIn  string
+		wantFiles  int
+	}{
+		{
+			name:       "companion given as a path",
+			items:      windowsArchive(),
+			companions: []string{"sub/libcronet.dll"},
+			wantCode:   apperr.CodeInvalidArgument,
+			wantErrIn:  "bare file name",
+		},
+		{
+			name:       "companion requested twice",
+			items:      windowsArchive(),
+			companions: []string{"libcronet.dll", "libcronet.dll"},
+			wantCode:   apperr.CodeInvalidArgument,
+			wantErrIn:  "twice",
+		},
+		{
+			name: "library in another directory",
+			items: []archiveItem{
+				{name: "release/sing-box.exe", content: "MZ", mode: 0o755},
+				{name: "elsewhere/libcronet.dll", content: "cronet bytes"},
+			},
+			companions: []string{"libcronet.dll"},
+			wantFiles:  1,
+		},
+		{
+			name: "two candidates next to the executable",
+			items: []archiveItem{
+				{name: "release/sing-box.exe", content: "MZ", mode: 0o755},
+				{name: "release/libcronet.dll", content: "first"},
+				{name: "release/libcronet.dll", content: "second"},
+			},
+			companions: []string{"libcronet.dll"},
+			wantCode:   apperr.CodeBinaryInstallFailed,
+			wantErrIn:  "at most one",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			archivePath := filepath.Join(root, "sing-box-1.14.0-windows-amd64.zip")
+			writeZip(t, archivePath, test.items)
+			destDir := filepath.Join(root, "bin", "1.14.0")
+
+			bundle, err := ExtractBundle(archivePath, destDir, "sing-box.exe", test.companions)
+			if test.wantCode != "" {
+				if err == nil {
+					t.Fatalf("ExtractBundle() = %+v, want an error", bundle)
+				}
+				if code := apperr.CodeOf(err); code != test.wantCode {
+					t.Errorf("error code = %s, want %s (%v)", code, test.wantCode, err)
+				}
+				if test.wantErrIn != "" && !strings.Contains(err.Error(), test.wantErrIn) {
+					t.Errorf("error %q does not mention %q", err, test.wantErrIn)
+				}
+				if entries := dirEntries(t, destDir); len(entries) != 0 {
+					t.Errorf("destDir contains %v, want nothing", entries)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ExtractBundle() failed: %v", err)
+			}
+			if len(bundle.Companions) != 0 {
+				t.Errorf("Companions = %v, want none: the library does not belong to this binary", bundle.Companions)
+			}
+			if entries := dirEntries(t, destDir); len(entries) != test.wantFiles {
+				t.Errorf("destDir contains %v, want %d entries", entries, test.wantFiles)
+			}
+		})
+	}
+}
+
+// TestExtractBundleToleratesAnArchiveWithoutTheLibrary: a release that stops
+// shipping the DLL must still install. The executable is what was verified, and a
+// profile that does not use the library does not need it.
+func TestExtractBundleToleratesAnArchiveWithoutTheLibrary(t *testing.T) {
+	root := t.TempDir()
+	archivePath := filepath.Join(root, "sing-box-1.15.0-windows-amd64.zip")
+	writeZip(t, archivePath, []archiveItem{
+		{name: "sing-box-1.15.0-windows-amd64/sing-box.exe", content: "MZ", mode: 0o755},
+		{name: "sing-box-1.15.0-windows-amd64/LICENSE", content: "license\n"},
+	})
+	destDir := filepath.Join(root, "bin", "1.15.0")
+
+	bundle, err := ExtractBundle(archivePath, destDir, "sing-box.exe", CompanionFiles("windows"))
+	if err != nil {
+		t.Fatalf("ExtractBundle() failed: %v", err)
+	}
+	if len(bundle.Companions) != 0 {
+		t.Errorf("Companions = %v, want none", bundle.Companions)
+	}
+	if entries := dirEntries(t, destDir); len(entries) != 1 {
+		t.Errorf("destDir contains %v, want the executable only", entries)
+	}
+}
+
+// TestCompanionFilesPerPlatform keeps the allow-list honest: only Windows ships a
+// library that sing-box loads from its own directory.
+func TestCompanionFilesPerPlatform(t *testing.T) {
+	if got := CompanionFiles("windows"); len(got) != 1 || got[0] != "libcronet.dll" {
+		t.Errorf("CompanionFiles(windows) = %v, want libcronet.dll", got)
+	}
+	for _, goos := range []string{"darwin", "linux", ""} {
+		if got := CompanionFiles(goos); len(got) != 0 {
+			t.Errorf("CompanionFiles(%q) = %v, want none", goos, got)
+		}
+	}
+}

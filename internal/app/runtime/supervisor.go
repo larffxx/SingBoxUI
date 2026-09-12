@@ -25,6 +25,17 @@ import (
 	"github.com/larffxx/singboxui/internal/singbox"
 )
 
+// Names of the per-launch bookkeeping files. They are written into the run
+// directory of a revision and are always joined onto it, never concatenated with
+// a literal separator: a "/" in a Windows path is rewritten by filepath.Clean,
+// and both sides of the privilege boundary refuse a path that is not in its
+// cleaned form.
+const (
+	runLogName    = "sing-box.log"
+	runPIDName    = "sing-box.pid"
+	runStatusName = "sing-box.status"
+)
+
 // Store is the persistence the supervisor needs to resolve a profile.
 type Store interface {
 	GetProfile(ctx context.Context, id string) (profile.Profile, error)
@@ -317,13 +328,20 @@ func (s *Supervisor) startLocked(ctx context.Context, profileID string) error {
 	if err != nil {
 		return s.failLocked(op, err)
 	}
+	// Every run file is built with filepath.Join, never with a literal "/": on
+	// Windows that would produce "…\run\<rev>/sing-box.log", and the privileged
+	// helper refuses any path that filepath.Clean would rewrite ("--log must not
+	// contain …"), so every elevated launch failed with RUNTIME_START_FAILED
+	// before sing-box was even considered. The helper validates the same paths
+	// again on the privileged side, which is why a literal separator cannot be
+	// tolerated on either side of the boundary.
 	request := privilege.Request{
 		BinaryPath: binaryPath,
 		ConfigPath: materialized.Path,
 		WorkDir:    runDir,
-		LogPath:    runDir + "/sing-box.log",
-		PIDPath:    runDir + "/sing-box.pid",
-		StatusPath: runDir + "/sing-box.status",
+		LogPath:    filepath.Join(runDir, runLogName),
+		PIDPath:    filepath.Join(runDir, runPIDName),
+		StatusPath: filepath.Join(runDir, runStatusName),
 		Elevate:    materialized.RequiresPrivilege,
 		Reason:     "TUN device required by profile " + p.Name,
 	}
@@ -609,17 +627,24 @@ func (s *Supervisor) stoppedLocked(exitCode int, message string) {
 
 func (s *Supervisor) failedLocked(err error, exitCode int) error {
 	code := apperr.CodeOf(err)
+	// The reason is rendered with its whole chain: the interface shows one
+	// message, and for a failure that happened before any process existed there is
+	// no child log to fall back on, so this is the only place the cause of — say —
+	// a refused launch request can be seen at all. It goes to the application log
+	// as well, which is what a user is asked for when a start fails.
+	reason := apperr.Explain(err)
 	s.mu.Lock()
 	s.status.State = domruntime.StateFailed
 	s.status.PID = 0
 	s.status.StartedAt = nil
 	s.status.UptimeSeconds = 0
-	s.status.LastError = apperr.MessageOf(err)
+	s.status.LastError = reason
 	s.status.LastErrorCode = string(code)
 	if exitCode != 0 {
 		s.status.LastExitCode = &exitCode
 	}
 	s.mu.Unlock()
+	s.deps.Logger.Error("the managed runtime failed", "code", string(code), "reason", reason)
 	s.emitStatus()
 	return err
 }

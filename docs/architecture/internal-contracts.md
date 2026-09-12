@@ -126,6 +126,19 @@ Verified facts (2025-09, release v1.14.0, re-verify against the live API in test
 // .tar.gz or .zip into destDir. Path traversal, symlinks, absolute paths and
 // extra files are refused (spec §21).
 func ExtractBinary(archivePath, destDir, executableName string) (string, error)
+
+// ExtractBundle additionally installs the companion libraries the official
+// archive ships beside the executable and that sing-box loads from its own
+// directory at run time — the Windows archive carries libcronet.dll for the
+// naive outbound (CompanionFiles(goos) is the allow-list). Only a companion
+// named in the request, present exactly once next to the executable and a
+// regular file is written; everything else in the archive (LICENSE, a library
+// nobody asked for) is skipped. A companion missing from an archive is not an
+// error: the executable is what was verified.
+func ExtractBundle(archivePath, destDir, executableName string, companions []string) (Bundle, error)
+
+// CompanionFiles returns that allow-list for a GOOS; empty except Windows.
+func CompanionFiles(goos string) []string
 ```
 
 ## 2. `internal/platform` implementations
