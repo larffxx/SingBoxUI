@@ -669,6 +669,41 @@ func TestSaveRevisionRejectsInvalidDraftsBeforeAnyWrite(t *testing.T) {
 	}
 }
 
+// TestSaveRevisionRefusesToApplyARevisionSingBoxRejected covers the case that
+// used to leave a profile pointing at a configuration that cannot start: the
+// caller asks to apply a draft the validator refused, and the revision must be
+// recorded for inspection (spec §14.4) without becoming the active one.
+func TestSaveRevisionRefusesToApplyARevisionSingBoxRejected(t *testing.T) {
+	t.Setenv(faketest.EnvScenario, faketest.ScenarioCheckFail)
+
+	h := newHarness(t)
+	ctx := context.Background()
+
+	view, err := h.svc.SaveRevision(ctx, SaveInput{ProfileID: "p-1", ConfigJSON: configA, Apply: true})
+	typed := wantCode(t, err, apperr.CodeConfigCheckFailed)
+
+	stored, ok := h.store.revisions[view.ID]
+	if !ok {
+		t.Fatalf("the refused revision %q was not kept", view.ID)
+	}
+	if stored.SingBoxValidation != profile.StatusFailed {
+		t.Errorf("sing-box validation = %q, want failed", stored.SingBoxValidation)
+	}
+	if view.Active {
+		t.Error("a revision the validator rejected was reported active")
+	}
+	if got := h.store.activeRevisionID("p-1"); got != "" {
+		t.Errorf("active revision = %q, want none: the refused draft must not be applied", got)
+	}
+	if !strings.Contains(typed.Message, "not applied") {
+		t.Errorf("message = %q, want it to say the draft was saved but not applied", typed.Message)
+	}
+	if details := strings.Join(typed.Details, "\n"); !strings.Contains(details, "FATAL") {
+		t.Errorf("details = %q, want the decoder output", details)
+	}
+	requireMissing(t, h.paths.ActiveConfigPath)
+}
+
 func TestSaveRevisionRecordsAFailedSingBoxCheckWithoutApplying(t *testing.T) {
 	t.Setenv(faketest.EnvScenario, faketest.ScenarioCheckFail)
 

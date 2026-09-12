@@ -286,6 +286,7 @@ func (s *Service) SaveRevision(ctx context.Context, in SaveInput) (RevisionView,
 
 	// Record the sing-box verdict even when it fails: the revision is kept for
 	// inspection (spec §14.4) but never applied.
+	checkErrors := []string{}
 	if binaryPath, version, binErr := s.binary(ctx); binErr == nil {
 		rev.SingBoxVersion = version.String()
 		if tempPath, cleanup, stageErr := s.stageCandidate(ctx, pretty, "save"); stageErr == nil {
@@ -295,20 +296,40 @@ func (s *Service) SaveRevision(ctx context.Context, in SaveInput) (RevisionView,
 				rev.SingBoxValidation = profile.StatusPassed
 			} else {
 				rev.SingBoxValidation = profile.StatusFailed
+				checkErrors = append(checkErrors, check.Errors...)
+				if checkErr != nil && len(check.Errors) == 0 {
+					checkErrors = append(checkErrors, checkErr.Error())
+				}
 			}
 		}
 	} else {
 		s.deps.Logger.Warn("saving a revision without a sing-box binary", "operation", op, "error", binErr)
 	}
 
-	if err := s.deps.Store.CreateRevision(ctx, rev, in.Apply); err != nil {
+	// A revision the validator refused is never made active, even when the caller
+	// asked to apply it: activating it would leave the profile pointing at a
+	// configuration that cannot start, and the next launch would fail for reasons
+	// the revision list no longer shows. The revision is still stored so the
+	// editor can show what was refused (spec §14.4, §37).
+	activate := in.Apply && rev.SingBoxValidation != profile.StatusFailed
+	if err := s.deps.Store.CreateRevision(ctx, rev, activate); err != nil {
 		return RevisionView{}, err
 	}
 	s.deps.Logger.Info("revision saved", "operation", op,
-		"profileId", p.ID, "revisionId", rev.ID, "source", string(rev.Source), "check", string(rev.SingBoxValidation))
+		"profileId", p.ID, "revisionId", rev.ID, "source", string(rev.Source),
+		"check", string(rev.SingBoxValidation), "applied", activate)
 
-	view := RevisionView{Revision: rev, Active: in.Apply, Size: len(rev.ConfigJSON)}
-	if in.Apply {
+	view := RevisionView{Revision: rev, Active: activate, Size: len(rev.ConfigJSON)}
+	if in.Apply && rev.SingBoxValidation == profile.StatusFailed {
+		rejected := apperr.New(apperr.CodeConfigCheckFailed, op,
+			"sing-box rejected the configuration, so it was saved but not applied")
+		if len(checkErrors) > 0 {
+			rejected.Message = "sing-box rejected the configuration, so it was saved but not applied: " +
+				strings.TrimSpace(checkErrors[0])
+		}
+		return view, apperr.WithDetails(rejected, checkErrors...)
+	}
+	if activate {
 		if _, err := s.Apply(ctx, ApplyInput{ProfileID: p.ID, RevisionID: rev.ID}); err != nil {
 			return view, err
 		}

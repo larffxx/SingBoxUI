@@ -34,6 +34,7 @@ import { ResourceListEditor } from '../ResourceListEditor'
 import { SpecFields } from '../fields'
 import { TagMultiSelect } from '../TagMultiSelect'
 import { DNS_SERVER_TYPES } from './dnsServerTypes'
+import { applyDnsPreset } from './dnsPreset'
 import type { DocTabProps } from './types'
 
 /** Fields of one DNS rule; `server` is filled from the declared server tags. */
@@ -92,7 +93,9 @@ export function DnsTab({ root, onChange }: DocTabProps) {
         <CardHeader>
           <CardTitle>Готовые наборы</CardTitle>
           <CardDescription>
-            Набор заменяет весь блок `dns` целиком: серверы, правила и стратегию.
+            Набор заменяет весь блок `dns` целиком: серверы, правила и стратегию. Если резолвер
+            (route.default_domain_resolver) ещё не задан, набор задаёт его сам: без него sing-box
+            1.14 пишет «не запускается» и не объясняет почему.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
@@ -104,7 +107,7 @@ export function DnsTab({ root, onChange }: DocTabProps) {
               size="sm"
               title={preset.description}
               onClick={() => {
-                setDns({ servers: preset.servers, strategy: preset.strategy })
+                onChange(applyDnsPreset(root, preset))
               }}
             >
               {preset.label}

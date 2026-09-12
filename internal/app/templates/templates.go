@@ -3,6 +3,21 @@
 // A template is a complete, valid sing-box configuration used as the initial
 // revision of a new profile, or applied on top of an existing one. Applying a
 // template never rewrites history: it creates a new revision.
+//
+// Every template must pass `sing-box check` with the managed binary as shipped:
+// a starter that the app itself rejects teaches the user nothing and, because a
+// rejected revision is never started (spec §37, §38), leaves them with a profile
+// that cannot come up. Templates_test.go runs the real validator over all of
+// them when a binary is available, so a sing-box release that removes a field
+// cannot silently break the starters (1.12 removed the legacy DNS server form,
+// 1.13 the legacy inbound fields, 1.14 the fallback domain resolver).
+//
+// Placeholders are valid-shaped on purpose — a reality public key and a
+// 2022-blake3 password are checked by sing-box before it starts, so a readable
+// "REPLACE_ME" there would make the template unusable. Everything the user has
+// to replace is named, and the DNS servers are written in the post-1.12 form
+// (type/server/tls) with route.default_domain_resolver set, which sing-box 1.14
+// requires before it will resolve a domain for a dial.
 package templates
 
 import (
@@ -31,9 +46,15 @@ func All() []Template {
 			ID: "empty", Name: "Empty",
 			Description: "Minimal configuration: one direct outbound, no inbounds. The starting point for a hand-written config.",
 			Config: `{
-  "log": { "level": "info", "timestamp": true },
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
   "outbounds": [
-    { "type": "direct", "tag": "direct" }
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
   ]
 }
 `,
@@ -43,11 +64,27 @@ func All() []Template {
 			Description:       "TUN inbound with a mixed-port fallback and direct routing. The VPN is on, but nothing is proxied yet.",
 			RequiresPrivilege: true,
 			Config: `{
-  "log": { "level": "info", "timestamp": true },
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
   "dns": {
     "servers": [
-      { "tag": "cloudflare", "address": "https://1.1.1.1/dns-query", "detour": "direct" },
-      { "tag": "local", "address": "local", "detour": "direct" }
+      {
+        "type": "https",
+        "tag": "cloudflare",
+        "server": "1.1.1.1",
+        "server_port": 443,
+        "path": "/dns-query",
+        "tls": {
+          "enabled": true,
+          "server_name": "1.1.1.1"
+        }
+      },
+      {
+        "type": "local",
+        "tag": "local"
+      }
     ],
     "final": "cloudflare",
     "strategy": "prefer_ipv4"
@@ -56,34 +93,46 @@ func All() []Template {
     {
       "type": "tun",
       "tag": "tun-in",
-      "interface_name": "singboxui0",
-      "address": ["172.19.0.1/30"],
+      "address": [
+        "172.19.0.1/30"
+      ],
       "mtu": 9000,
       "auto_route": true,
       "strict_route": true,
-      "stack": "system",
-      "sniff": true,
-      "sniff_override_destination": false
+      "stack": "system"
     },
     {
       "type": "mixed",
       "tag": "mixed-in",
       "listen": "127.0.0.1",
-      "listen_port": 2080,
-      "sniff": true
+      "listen_port": 2080
     }
   ],
   "outbounds": [
-    { "type": "direct", "tag": "direct" }
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
   ],
   "route": {
     "rules": [
-      { "action": "sniff" },
-      { "protocol": "dns", "action": "hijack-dns" },
-      { "ip_is_private": true, "outbound": "direct" }
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      }
     ],
     "final": "direct",
-    "auto_detect_interface": true
+    "auto_detect_interface": true,
+    "default_domain_resolver": {
+      "server": "cloudflare"
+    }
   }
 }
 `,
@@ -93,11 +142,28 @@ func All() []Template {
 			Description:       "TUN inbound routed through a VLESS outbound with Reality TLS. Fill in the server address, port, UUID and public key.",
 			RequiresPrivilege: true,
 			Config: `{
-  "log": { "level": "info", "timestamp": true },
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
   "dns": {
     "servers": [
-      { "tag": "remote", "address": "https://1.1.1.1/dns-query", "detour": "proxy" },
-      { "tag": "local", "address": "local", "detour": "direct" }
+      {
+        "type": "https",
+        "tag": "remote",
+        "server": "1.1.1.1",
+        "server_port": 443,
+        "path": "/dns-query",
+        "tls": {
+          "enabled": true,
+          "server_name": "1.1.1.1"
+        },
+        "detour": "proxy"
+      },
+      {
+        "type": "local",
+        "tag": "local"
+      }
     ],
     "final": "remote",
     "strategy": "prefer_ipv4"
@@ -106,20 +172,19 @@ func All() []Template {
     {
       "type": "tun",
       "tag": "tun-in",
-      "interface_name": "singboxui0",
-      "address": ["172.19.0.1/30"],
+      "address": [
+        "172.19.0.1/30"
+      ],
       "mtu": 9000,
       "auto_route": true,
       "strict_route": true,
-      "stack": "system",
-      "sniff": true
+      "stack": "system"
     },
     {
       "type": "mixed",
       "tag": "mixed-in",
       "listen": "127.0.0.1",
-      "listen_port": 2080,
-      "sniff": true
+      "listen_port": 2080
     }
   ],
   "outbounds": [
@@ -133,24 +198,41 @@ func All() []Template {
       "tls": {
         "enabled": true,
         "server_name": "REPLACE_WITH_SNI",
-        "utls": { "enabled": true, "fingerprint": "chrome" },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
         "reality": {
           "enabled": true,
-          "public_key": "REPLACE_WITH_PUBLIC_KEY",
+          "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
           "short_id": ""
         }
       }
     },
-    { "type": "direct", "tag": "direct" }
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
   ],
   "route": {
     "rules": [
-      { "action": "sniff" },
-      { "protocol": "dns", "action": "hijack-dns" },
-      { "ip_is_private": true, "outbound": "direct" }
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      }
     ],
     "final": "proxy",
-    "auto_detect_interface": true
+    "auto_detect_interface": true,
+    "default_domain_resolver": {
+      "server": "remote"
+    }
   }
 }
 `,
@@ -159,14 +241,16 @@ func All() []Template {
 			ID: "socks-local", Name: "SOCKS local proxy",
 			Description: "No TUN device: a local SOCKS/mixed port routed through a Shadowsocks outbound. Useful for testing a server without touching system routing.",
 			Config: `{
-  "log": { "level": "info", "timestamp": true },
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
   "inbounds": [
     {
       "type": "mixed",
       "tag": "mixed-in",
       "listen": "127.0.0.1",
-      "listen_port": 2080,
-      "sniff": true
+      "listen_port": 2080
     }
   ],
   "outbounds": [
@@ -176,11 +260,21 @@ func All() []Template {
       "server": "REPLACE_WITH_SERVER",
       "server_port": 8388,
       "method": "2022-blake3-aes-128-gcm",
-      "password": "REPLACE_WITH_PASSWORD"
+      "password": "AAAAAAAAAAAAAAAAAAAAAA=="
     },
-    { "type": "direct", "tag": "direct" }
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
   ],
-  "route": { "final": "proxy" }
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      }
+    ],
+    "final": "proxy"
+  }
 }
 `,
 		},
@@ -188,10 +282,24 @@ func All() []Template {
 			ID: "selector", Name: "Selector-based profile",
 			Description: "Two proxied outbounds behind a selector plus a urltest group, so the active server can be switched while the VPN is running.",
 			Config: `{
-  "log": { "level": "info", "timestamp": true },
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
   "dns": {
     "servers": [
-      { "tag": "remote", "address": "https://1.1.1.1/dns-query", "detour": "select" }
+      {
+        "type": "https",
+        "tag": "remote",
+        "server": "1.1.1.1",
+        "server_port": 443,
+        "path": "/dns-query",
+        "tls": {
+          "enabled": true,
+          "server_name": "1.1.1.1"
+        },
+        "detour": "select"
+      }
     ],
     "final": "remote",
     "strategy": "prefer_ipv4"
@@ -201,21 +309,28 @@ func All() []Template {
       "type": "mixed",
       "tag": "mixed-in",
       "listen": "127.0.0.1",
-      "listen_port": 2080,
-      "sniff": true
+      "listen_port": 2080
     }
   ],
   "outbounds": [
     {
       "type": "selector",
       "tag": "select",
-      "outbounds": ["auto", "server-a", "server-b", "direct"],
+      "outbounds": [
+        "auto",
+        "server-a",
+        "server-b",
+        "direct"
+      ],
       "default": "auto"
     },
     {
       "type": "urltest",
       "tag": "auto",
-      "outbounds": ["server-a", "server-b"],
+      "outbounds": [
+        "server-a",
+        "server-b"
+      ],
       "url": "https://www.gstatic.com/generate_204",
       "interval": "5m",
       "tolerance": 50
@@ -226,7 +341,14 @@ func All() []Template {
       "server": "REPLACE_WITH_SERVER_A",
       "server_port": 443,
       "uuid": "REPLACE_WITH_UUID",
-      "tls": { "enabled": true, "server_name": "REPLACE_WITH_SNI", "utls": { "enabled": true, "fingerprint": "chrome" } }
+      "tls": {
+        "enabled": true,
+        "server_name": "REPLACE_WITH_SNI",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
     },
     {
       "type": "trojan",
@@ -234,11 +356,27 @@ func All() []Template {
       "server": "REPLACE_WITH_SERVER_B",
       "server_port": 443,
       "password": "REPLACE_WITH_PASSWORD",
-      "tls": { "enabled": true, "server_name": "REPLACE_WITH_SNI" }
+      "tls": {
+        "enabled": true,
+        "server_name": "REPLACE_WITH_SNI"
+      }
     },
-    { "type": "direct", "tag": "direct" }
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
   ],
-  "route": { "final": "select" }
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      }
+    ],
+    "final": "select",
+    "default_domain_resolver": {
+      "server": "remote"
+    }
+  }
 }
 `,
 		},

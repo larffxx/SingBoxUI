@@ -68,6 +68,10 @@ tools: ## Install build-time tools (wails, staticcheck)
 frontend-lint: ## Lint the frontend (ESLint)
 	cd $(FRONTEND_DIR) && $(NPM) run lint
 
+.PHONY: frontend-format-check
+frontend-format-check: ## Report unformatted frontend files (Prettier, mirrors CI)
+	cd $(FRONTEND_DIR) && $(NPM) run format:check
+
 .PHONY: frontend-typecheck
 frontend-typecheck: ## Type-check the frontend (tsc, strict)
 	cd $(FRONTEND_DIR) && $(NPM) run typecheck
@@ -139,7 +143,7 @@ build-priv: ## Build the privileged helper binary
 ## Verification ---------------------------------------------------------------
 
 .PHONY: check
-check: go-lint test test-race frontend-lint frontend-typecheck frontend-test frontend-build ## Full local gate (mirrors CI)
+check: go-lint test test-race frontend-lint frontend-format-check frontend-typecheck frontend-test frontend-build ## Full local gate (mirrors CI)
 	@echo "All checks passed."
 
 .PHONY: ci

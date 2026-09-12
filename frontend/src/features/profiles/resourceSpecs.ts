@@ -621,50 +621,74 @@ export interface DnsPreset {
   strategy: string
 }
 
+/**
+ * Two server shapes are written here because the older ones are rejected:
+ *
+ * - `{ "address": "https://8.8.8.8/dns-query" }` was deprecated in sing-box 1.12
+ *   and removed in 1.14, so a profile built from such a server does not decode at
+ *   all. Everything here uses `type` with `server`/`server_port`/`path`/`tls`.
+ * - `"detour": "direct"` looks harmless but makes sing-box 1.14 fail right after
+ *   starting with "detour to an empty direct outbound makes no sense": a DNS
+ *   server dials directly already, and naming the implicit direct outbound is
+ *   rejected. The presets therefore leave `detour` out; a preset that has to
+ *   resolve through a tunnel sets it in DnsTab, and every preset declaring a
+ *   remote server is paired with the `route.default_domain_resolver` sing-box
+ *   1.14 requires before it resolves a domain for a dial.
+ */
+function doh(tag: string, server: string): JsonObject {
+  return {
+    type: 'https',
+    tag,
+    server,
+    server_port: 443,
+    path: '/dns-query',
+    tls: { enabled: true, server_name: server },
+  }
+}
+
 export const DNS_PRESETS: DnsPreset[] = [
   {
     id: 'cloudflare',
     label: 'Cloudflare DoH',
     description: '1.1.1.1 и 1.0.0.1 по HTTPS.',
     strategy: 'prefer_ipv4',
-    servers: [
-      { tag: 'dns-cf', address: 'https://1.1.1.1/dns-query', detour: 'direct' },
-      { tag: 'dns-cf-alt', address: 'https://1.0.0.1/dns-query', detour: 'direct' },
-    ],
+    servers: [doh('dns-cf', '1.1.1.1'), doh('dns-cf-alt', '1.0.0.1')],
   },
   {
     id: 'google',
     label: 'Google DoH',
     description: '8.8.8.8 и 8.8.4.4 по HTTPS.',
     strategy: 'prefer_ipv4',
-    servers: [
-      { tag: 'dns-google', address: 'https://8.8.8.8/dns-query', detour: 'direct' },
-      { tag: 'dns-google-alt', address: 'https://8.8.4.4/dns-query', detour: 'direct' },
-    ],
+    servers: [doh('dns-google', '8.8.8.8'), doh('dns-google-alt', '8.8.4.4')],
   },
   {
     id: 'quad9',
     label: 'Quad9 DoT',
     description: 'DNS-over-TLS с блокировкой вредоносных доменов.',
     strategy: 'prefer_ipv4',
-    servers: [{ tag: 'dns-quad9', address: 'tls://9.9.9.9', detour: 'direct' }],
+    servers: [
+      {
+        type: 'tls',
+        tag: 'dns-quad9',
+        server: '9.9.9.9',
+        server_port: 853,
+        tls: { enabled: true, server_name: '9.9.9.9' },
+      },
+    ],
   },
   {
     id: 'alidns',
     label: 'AliDNS',
     description: 'Быстрые DNS-серверы для региона CN.',
     strategy: 'prefer_ipv4',
-    servers: [
-      { tag: 'dns-ali', address: 'https://223.5.5.5/dns-query', detour: 'direct' },
-      { tag: 'dns-ali-alt', address: 'https://223.6.6.6/dns-query', detour: 'direct' },
-    ],
+    servers: [doh('dns-ali', '223.5.5.5'), doh('dns-ali-alt', '223.6.6.6')],
   },
   {
     id: 'system',
     label: 'Системный DNS',
     description: 'Резолвер операционной системы.',
     strategy: 'prefer_ipv4',
-    servers: [{ tag: 'dns-local', address: 'local' }],
+    servers: [{ type: 'local', tag: 'dns-local' }],
   },
 ]
 

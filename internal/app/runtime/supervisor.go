@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -118,7 +119,10 @@ type Deps struct {
 	Timings        Timings
 	LogCapacity    int
 	LogFlushPeriod time.Duration
-	Now            func() time.Time
+	// CheckTimeout bounds the pre-start `sing-box check`; zero means the
+	// built-in default.
+	CheckTimeout time.Duration
+	Now          func() time.Time
 }
 
 // Supervisor is the single owner of the managed process.
@@ -134,6 +138,11 @@ type Supervisor struct {
 	proc    privilege.Process
 	exitCh  chan exitResult
 	workers sync.WaitGroup
+	// logPath is the file the last launch writes its output to. Startup
+	// failures read it back from disk: a process that dies in milliseconds can
+	// outrun the live log buffer, and then the reason for the failure would be
+	// lost (spec §38: never hide a startup failure).
+	logPath string
 	// rootCtx is cancelled on shutdown; every worker derives from it.
 	rootCtx    context.Context
 	cancelRoot context.CancelFunc
@@ -294,6 +303,15 @@ func (s *Supervisor) startLocked(ctx context.Context, profileID string) error {
 	if err != nil {
 		return s.failLocked(op, err)
 	}
+	// Validate the very file the process is about to read (spec §38). A stored
+	// revision can predate the managed sing-box — the app itself used to write
+	// the legacy DNS form 1.14 removed — and launching it anyway produces a
+	// sixty-millisecond crash plus a status that tells the user nothing.
+	if err := s.validateBeforeStart(ctx, op, binaryPath, materialized.Path); err != nil {
+		s.deps.Logger.Warn("refusing to start an invalid configuration", "operation", op,
+			"profileId", p.ID, "revisionId", rev.ID, "error", err)
+		return s.failLocked(op, err)
+	}
 
 	runDir, err := s.runtimeDir(rev.ID)
 	if err != nil {
@@ -314,6 +332,7 @@ func (s *Supervisor) startLocked(ctx context.Context, profileID string) error {
 	}
 
 	s.startingLocked(p.ID, rev.ID, binaryPath, version, materialized.Path)
+	s.setLogPath(request.LogPath)
 	s.logs.reset(rev.ID)
 
 	proc, err := s.deps.Privilege.Start(s.rootCtx, request)
@@ -369,8 +388,53 @@ func (s *Supervisor) awaitHealthy(proc privilege.Process) error {
 	}
 }
 
+// validateBeforeStart runs `sing-box check` on the file the process is about to
+// read and turns a rejection into the error the user sees.
+//
+// Nothing is launched when the binary refuses the file (spec §38: "if validation
+// fails, do not start"), so a profile that sing-box cannot even parse stops
+// looking like a working profile that mysteriously refuses to come up.
+func (s *Supervisor) validateBeforeStart(ctx context.Context, op, binaryPath, configPath string) error {
+	timeout := s.deps.CheckTimeout
+	if timeout <= 0 {
+		timeout = 20 * time.Second
+	}
+	check, err := singbox.Check(ctx, binaryPath, configPath, timeout)
+	if err == nil && check.OK {
+		return nil
+	}
+	details := append([]string{}, check.Errors...)
+	if err != nil {
+		if typed, ok := apperr.As(err); ok {
+			details = append(details, typed.Details...)
+		} else {
+			details = append(details, err.Error())
+		}
+	}
+	rejected := apperr.New(apperr.CodeConfigCheckFailed, op,
+		"sing-box rejected the configuration, so it was not started")
+	if len(check.Errors) > 0 {
+		rejected.Message = "sing-box rejected the configuration: " + strings.TrimSpace(check.Errors[0])
+	}
+	return apperr.WithDetails(rejected, details...)
+}
+
+// setLogPath records where the current launch writes its output.
+func (s *Supervisor) setLogPath(path string) {
+	s.mu.Lock()
+	s.logPath = path
+	s.mu.Unlock()
+}
+
+// logFileTail returns the newest lines of the launch log file.
+func (s *Supervisor) logFileTail(n int) []string {
+	s.mu.RLock()
+	path := s.logPath
+	s.mu.RUnlock()
+	return tailFileLines(path, n)
+}
+
 func (s *Supervisor) exitError(op string, res exitResult) error {
-	detail := s.logs.tail(6)
 	err := apperr.Newf(apperr.CodeRuntimeStartFailed, op, "sing-box exited during startup with code %d", res.code)
 	if res.err != nil {
 		err.Message = "sing-box exited during startup: " + res.err.Error()
@@ -382,7 +446,19 @@ func (s *Supervisor) exitError(op string, res exitResult) error {
 	if res.err != nil {
 		details = append(details, "waitError="+res.err.Error())
 	}
-	return apperr.WithDetails(err, append(details, detail...)...)
+	// The live buffer is read first and the file second: a process that dies
+	// inside the startup grace can exit before its output reached the buffer,
+	// and the user would otherwise be told "code 1" with no explanation.
+	seen := make(map[string]bool, 12)
+	for _, line := range append(s.logs.tail(6), s.logFileTail(6)...) {
+		line = strings.TrimSpace(line)
+		if line == "" || seen[line] {
+			continue
+		}
+		seen[line] = true
+		details = append(details, line)
+	}
+	return apperr.WithDetails(err, details...)
 }
 
 func (s *Supervisor) stopLocked(ctx context.Context, reason string) error {

@@ -256,6 +256,9 @@ func New(deps Deps) *App {
 		Logger:    logger,
 		Paths:     paths,
 		Observer:  &runtimeObserver{app: a},
+		// The pre-start check must not hold the start button for long: the same
+		// binary parses the file in a few tens of milliseconds.
+		CheckTimeout: 20 * time.Second,
 	})
 	link.wire(a.config, a.runtime)
 

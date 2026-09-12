@@ -1,14 +1,25 @@
 package templates
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
+	"regexp"
+	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/larffxx/singboxui/internal/domain/apperr"
 	domainconfig "github.com/larffxx/singboxui/internal/domain/config"
+	"github.com/larffxx/singboxui/internal/platform"
+	"github.com/larffxx/singboxui/internal/singbox"
 )
 
 // wantIDs is the catalogue in display order. The UI renders the list in this
@@ -188,6 +199,10 @@ func TestTemplateGoldenStructure(t *testing.T) {
 		id   string
 		path []any
 		want string
+		// missing inverts the probe: the path must not exist at all. It covers
+		// the fields that have to stay out of a generated configuration, such as
+		// the legacy forms sing-box refuses to start with.
+		missing bool
 	}{
 		{name: "empty log level", id: "empty", path: []any{"log", "level"}, want: "info"},
 		{name: "empty timestamp", id: "empty", path: []any{"log", "timestamp"}, want: "true"},
@@ -196,7 +211,7 @@ func TestTemplateGoldenStructure(t *testing.T) {
 
 		{name: "tun inbound type", id: "tun-basic", path: []any{"inbounds", 0, "type"}, want: "tun"},
 		{name: "tun tag", id: "tun-basic", path: []any{"inbounds", 0, "tag"}, want: "tun-in"},
-		{name: "tun interface name", id: "tun-basic", path: []any{"inbounds", 0, "interface_name"}, want: "singboxui0"},
+		{name: "tun interface name is left to sing-box", id: "tun-basic", path: []any{"inbounds", 0, "interface_name"}, missing: true},
 		{name: "tun address", id: "tun-basic", path: []any{"inbounds", 0, "address"}, want: "172.19.0.1/30"},
 		{name: "tun mtu", id: "tun-basic", path: []any{"inbounds", 0, "mtu"}, want: "9000"},
 		{name: "tun auto route", id: "tun-basic", path: []any{"inbounds", 0, "auto_route"}, want: "true"},
@@ -208,13 +223,21 @@ func TestTemplateGoldenStructure(t *testing.T) {
 		{name: "tun-basic route final", id: "tun-basic", path: []any{"route", "final"}, want: "direct"},
 		{name: "tun-basic auto detect interface", id: "tun-basic", path: []any{"route", "auto_detect_interface"}, want: "true"},
 		{name: "tun-basic dns final", id: "tun-basic", path: []any{"dns", "final"}, want: "cloudflare"},
-		{name: "tun-basic dns server detour", id: "tun-basic", path: []any{"dns", "servers", 0, "detour"}, want: "direct"},
-		{name: "tun-basic dns address", id: "tun-basic", path: []any{"dns", "servers", 0, "address"}, want: "https://1.1.1.1/dns-query"},
+		{name: "tun-basic dns server has no detour", id: "tun-basic", path: []any{"dns", "servers", 0, "detour"}, missing: true},
+		{name: "tun-basic dns server type", id: "tun-basic", path: []any{"dns", "servers", 0, "type"}, want: "https"},
+		{name: "tun-basic dns server address", id: "tun-basic", path: []any{"dns", "servers", 0, "server"}, want: "1.1.1.1"},
+		{name: "tun-basic dns server port", id: "tun-basic", path: []any{"dns", "servers", 0, "server_port"}, want: "443"},
+		{name: "tun-basic dns server path", id: "tun-basic", path: []any{"dns", "servers", 0, "path"}, want: "/dns-query"},
+		{name: "tun-basic dns server tls", id: "tun-basic", path: []any{"dns", "servers", 0, "tls", "enabled"}, want: "true"},
+		{name: "tun-basic dns server tls name", id: "tun-basic", path: []any{"dns", "servers", 0, "tls", "server_name"}, want: "1.1.1.1"},
+		{name: "tun-basic local server type", id: "tun-basic", path: []any{"dns", "servers", 1, "type"}, want: "local"},
+		{name: "tun-basic default domain resolver", id: "tun-basic", path: []any{"route", "default_domain_resolver", "server"}, want: "cloudflare"},
 		{name: "tun-basic rule 3 keeps private traffic direct", id: "tun-basic", path: []any{"route", "rules", 2, "outbound"}, want: "direct"},
 		{name: "tun-basic rule 3 matches private ip", id: "tun-basic", path: []any{"route", "rules", 2, "ip_is_private"}, want: "true"},
 		{name: "tun-basic dns rule hijacks", id: "tun-basic", path: []any{"route", "rules", 1, "action"}, want: "hijack-dns"},
 
 		{name: "reality inbound is tun", id: "tun-vless-reality", path: []any{"inbounds", 0, "type"}, want: "tun"},
+		{name: "reality tun interface name is left to sing-box", id: "tun-vless-reality", path: []any{"inbounds", 0, "interface_name"}, missing: true},
 		{name: "reality outbound type", id: "tun-vless-reality", path: []any{"outbounds", 0, "type"}, want: "vless"},
 		{name: "reality outbound tag", id: "tun-vless-reality", path: []any{"outbounds", 0, "tag"}, want: "proxy"},
 		{name: "reality server port", id: "tun-vless-reality", path: []any{"outbounds", 0, "server_port"}, want: "443"},
@@ -226,6 +249,11 @@ func TestTemplateGoldenStructure(t *testing.T) {
 		{name: "reality route final", id: "tun-vless-reality", path: []any{"route", "final"}, want: "proxy"},
 		{name: "reality dns final", id: "tun-vless-reality", path: []any{"dns", "final"}, want: "remote"},
 		{name: "reality dns goes through the proxy", id: "tun-vless-reality", path: []any{"dns", "servers", 0, "detour"}, want: "proxy"},
+		{name: "reality dns server type", id: "tun-vless-reality", path: []any{"dns", "servers", 0, "type"}, want: "https"},
+		{name: "reality dns server address", id: "tun-vless-reality", path: []any{"dns", "servers", 0, "server"}, want: "1.1.1.1"},
+		{name: "reality dns tls name", id: "tun-vless-reality", path: []any{"dns", "servers", 0, "tls", "server_name"}, want: "1.1.1.1"},
+		{name: "reality local server type", id: "tun-vless-reality", path: []any{"dns", "servers", 1, "type"}, want: "local"},
+		{name: "reality default domain resolver", id: "tun-vless-reality", path: []any{"route", "default_domain_resolver", "server"}, want: "remote"},
 
 		{name: "socks single inbound", id: "socks-local", path: []any{"inbounds", 0, "type"}, want: "mixed"},
 		{name: "socks listen port", id: "socks-local", path: []any{"inbounds", 0, "listen_port"}, want: "2080"},
@@ -247,6 +275,9 @@ func TestTemplateGoldenStructure(t *testing.T) {
 		{name: "selector direct is last", id: "selector", path: []any{"outbounds", 4, "type"}, want: "direct"},
 		{name: "selector route final", id: "selector", path: []any{"route", "final"}, want: "select"},
 		{name: "selector dns follows the selector", id: "selector", path: []any{"dns", "servers", 0, "detour"}, want: "select"},
+		{name: "selector dns server type", id: "selector", path: []any{"dns", "servers", 0, "type"}, want: "https"},
+		{name: "selector dns server address", id: "selector", path: []any{"dns", "servers", 0, "server"}, want: "1.1.1.1"},
+		{name: "selector default domain resolver", id: "selector", path: []any{"route", "default_domain_resolver", "server"}, want: "remote"},
 	}
 
 	for _, probe := range probes {
@@ -256,6 +287,12 @@ func TestTemplateGoldenStructure(t *testing.T) {
 				t.Fatalf("Parse: %v", err)
 			}
 			value, ok := lookup(t, root, probe.path)
+			if probe.missing {
+				if ok {
+					t.Fatalf("%s: path %v must not be set, found %q", probe.id, probe.path, formatValue(value))
+				}
+				return
+			}
 			if !ok {
 				t.Fatalf("%s: path %v is missing from the configuration", probe.id, probe.path)
 			}
@@ -335,8 +372,8 @@ func TestTemplatesWithPlaceholdersStayJsonValid(t *testing.T) {
 	}{
 		{id: "empty", without: true},
 		{id: "tun-basic", without: true},
-		{id: "tun-vless-reality", needs: []string{"REPLACE_WITH_SERVER", "REPLACE_WITH_UUID", "REPLACE_WITH_SNI", "REPLACE_WITH_PUBLIC_KEY"}},
-		{id: "socks-local", needs: []string{"REPLACE_WITH_SERVER", "REPLACE_WITH_PASSWORD"}},
+		{id: "tun-vless-reality", needs: []string{"REPLACE_WITH_SERVER", "REPLACE_WITH_UUID", "REPLACE_WITH_SNI"}},
+		{id: "socks-local", needs: []string{"REPLACE_WITH_SERVER"}},
 		{id: "selector", needs: []string{"REPLACE_WITH_SERVER_A", "REPLACE_WITH_SERVER_B", "REPLACE_WITH_UUID", "REPLACE_WITH_SNI"}},
 	}
 
@@ -465,4 +502,366 @@ func TestTemplateJSONContract(t *testing.T) {
 	if !reflect.DeepEqual(ids, wantIDs) {
 		t.Fatalf("IDs() round-trip = %v, want %v", ids, wantIDs)
 	}
+}
+
+// managedBinaryForTest returns an installed sing-box for the validator-backed
+// tests. SINGBOXUI_TEST_SINGBOX wins, then the managed install directory, then
+// PATH; an empty result means the test is skipped rather than failed.
+func managedBinaryForTest(t *testing.T) string {
+	t.Helper()
+	if explicit := strings.TrimSpace(os.Getenv("SINGBOXUI_TEST_SINGBOX")); explicit != "" {
+		if !singbox.IsExecutable(explicit) {
+			t.Fatalf("SINGBOXUI_TEST_SINGBOX=%s is not an executable file", explicit)
+		}
+		return explicit
+	}
+	if plat, err := platform.New(); err == nil {
+		matches, _ := filepath.Glob(filepath.Join(plat.Paths().BinDir, "*", singbox.ExecutableName(runtime.GOOS)))
+		sort.Sort(sort.Reverse(sort.StringSlice(matches)))
+		for _, candidate := range matches {
+			if singbox.IsExecutable(candidate) {
+				return candidate
+			}
+		}
+	}
+	if found, err := exec.LookPath("sing-box"); err == nil {
+		return found
+	}
+	return ""
+}
+
+// TestTemplatesPassTheManagedValidator runs every template through the real
+// validator, which is the only check that catches a field a sing-box release
+// removed: the app refuses to start a configuration the binary rejects
+// (spec §37, §38), so a starter that fails here ships a dead end. Skipped when
+// no binary is installed.
+func TestTemplatesPassTheManagedValidator(t *testing.T) {
+	binary := managedBinaryForTest(t)
+	if binary == "" {
+		t.Skip("no sing-box binary found; set SINGBOXUI_TEST_SINGBOX to validate the templates")
+	}
+	t.Logf("validating templates with %s", binary)
+
+	for _, tpl := range All() {
+		t.Run(tpl.ID, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			if err := os.WriteFile(path, []byte(tpl.Config), 0o600); err != nil {
+				t.Fatalf("write the template: %v", err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			out, err := exec.CommandContext(ctx, binary, "check", "-c", path).CombinedOutput()
+			if err != nil {
+				t.Fatalf("sing-box check rejected the %s template: %v\n%s", tpl.ID, err, strings.TrimSpace(string(out)))
+			}
+		})
+	}
+}
+
+// TestTemplatesAvoidFormsTheCurrentSingBoxRemoved keeps the starters clear of
+// the settings sing-box dropped over 1.12-1.14. The validator test above proves
+// the current binary accepts them; this one explains *why* a field may not come
+// back, so a future edit does not reintroduce an old spelling.
+func TestTemplatesAvoidFormsTheCurrentSingBoxRemoved(t *testing.T) {
+	// Fields removed from the inbound level (1.11 deprecated, 1.13 removed).
+	removedInboundFields := []string{"sniff", "sniff_override_destination", "domain_strategy"}
+
+	for _, tpl := range All() {
+		t.Run(tpl.ID, func(t *testing.T) {
+			root, err := domainconfig.Parse([]byte(tpl.Config))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+
+			dns, _ := root["dns"].(map[string]any)
+			servers, _ := dns["servers"].([]any)
+			for i, raw := range servers {
+				server, ok := raw.(map[string]any)
+				if !ok {
+					t.Fatalf("dns.servers[%d] is not an object", i)
+				}
+				if _, ok := server["address"]; ok {
+					t.Errorf("dns.servers[%d] uses the legacy \"address\" form (deprecated in sing-box 1.12, removed in 1.14); use type/server/tls", i)
+				}
+				if kind, _ := server["type"].(string); strings.TrimSpace(kind) == "" {
+					t.Errorf("dns.servers[%d] has no \"type\"", i)
+				}
+				// A DNS server already dials directly, so naming the implicit
+				// direct outbound is rejected at start-up ("detour to an empty
+				// direct outbound makes no sense") — and `check` does not catch
+				// it, which is exactly the "profile does not start" report.
+				if detour, _ := server["detour"].(string); detour == "direct" {
+					t.Errorf("dns.servers[%d] detours through \"direct\", which sing-box 1.14 refuses at start-up; drop the detour or name a real outbound", i)
+				}
+			}
+
+			// A remote DNS server means sing-box has to resolve a domain
+			// somewhere; 1.14 refuses to start when nothing declares that
+			// resolver for a dial.
+			if len(servers) > 0 {
+				route, _ := root["route"].(map[string]any)
+				if _, ok := route["default_domain_resolver"]; !ok {
+					t.Errorf("route.default_domain_resolver is missing although %d DNS servers are declared; sing-box 1.14 refuses to start without it", len(servers))
+				}
+			}
+
+			inbounds, _ := root["inbounds"].([]any)
+			for i, raw := range inbounds {
+				inbound, ok := raw.(map[string]any)
+				if !ok {
+					t.Fatalf("inbounds[%d] is not an object", i)
+				}
+				for _, field := range removedInboundFields {
+					if _, ok := inbound[field]; ok {
+						t.Errorf("inbounds[%d] uses %q, which was removed in sing-box 1.13; use a route rule with \"action\": \"sniff\" instead", i, field)
+					}
+				}
+				// A pinned TUN name only works on the platform it was written
+				// for: macOS accepts utun* and nothing else, and sing-box dies
+				// with "bad tun name" before it ever asks for privileges. Left
+				// unset, sing-box picks a name the platform accepts.
+				if kind, _ := inbound["type"].(string); kind == "tun" {
+					if name, ok := inbound["interface_name"]; ok {
+						t.Errorf("inbounds[%d] pins interface_name %v; leave it unset so sing-box chooses a platform-valid device name", i, name)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestTemplateSecretsAreValidShapedPlaceholders documents why the secrets in the
+// templates are valid base64 rather than readable words: sing-box decodes them
+// before it starts, so "REPLACE_WITH_PUBLIC_KEY" makes the template unusable and
+// "invalid public_key" is all the user would ever see. The values are still
+// obvious placeholders (zeros), and the template description says what to fill in.
+func TestTemplateSecretsAreValidShapedPlaceholders(t *testing.T) {
+	t.Run("reality public key", func(t *testing.T) {
+		root, err := domainconfig.Parse([]byte(templateByID(t, "tun-vless-reality").Config))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		raw, ok := lookup(t, root, []any{"outbounds", 0, "tls", "reality", "public_key"})
+		if !ok {
+			t.Fatal("tls.reality.public_key is missing")
+		}
+		key, _ := raw.(string)
+		decoded, err := base64.RawURLEncoding.DecodeString(key)
+		if err != nil {
+			t.Fatalf("public_key %q is not raw-url base64: %v", key, err)
+		}
+		if len(decoded) != 32 {
+			t.Errorf("public_key decodes to %d bytes, want the 32 bytes of an X25519 key", len(decoded))
+		}
+	})
+
+	t.Run("shadowsocks password", func(t *testing.T) {
+		root, err := domainconfig.Parse([]byte(templateByID(t, "socks-local").Config))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		method, _ := lookup(t, root, []any{"outbounds", 0, "method"})
+		raw, ok := lookup(t, root, []any{"outbounds", 0, "password"})
+		if !ok {
+			t.Fatal("password is missing")
+		}
+		password, _ := raw.(string)
+		decoded, err := base64.StdEncoding.DecodeString(password)
+		if err != nil {
+			t.Fatalf("password %q is not standard base64: %v", password, err)
+		}
+		// 2022-blake3-aes-128-gcm keys are 16 bytes; sing-box rejects any other
+		// length with "decode key".
+		if len(decoded) != 16 {
+			t.Errorf("password for %v decodes to %d bytes, want 16", method, len(decoded))
+		}
+	})
+}
+
+// startingTemplates is the shared harness for the two tests below: it writes a
+// template to a temporary file with every inbound port reassigned to an
+// ephemeral one, starts the real binary and reports the log together with
+// whether sing-box announced a start.
+//
+// The child writes to a file rather than a shared buffer: the test polls it while
+// sing-box runs, and file reads keep that free of data races under -race.
+func startingTemplate(t *testing.T, binary, configJSON string) (log string, started bool) {
+	t.Helper()
+	root, err := domainconfig.Parse([]byte(configJSON))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if inbounds, ok := root["inbounds"].([]any); ok {
+		for i, raw := range inbounds {
+			inbound, ok := raw.(map[string]any)
+			if !ok {
+				t.Fatalf("inbounds[%d] is not an object", i)
+			}
+			if _, ok := inbound["listen_port"]; ok {
+				inbound["listen_port"] = 0
+			}
+		}
+	}
+	raw, err := json.Marshal(root)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
+		t.Fatalf("write the config: %v", err)
+	}
+	logPath := filepath.Join(dir, "sing-box.log")
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		t.Fatalf("create the log: %v", err)
+	}
+	defer logFile.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, "run", "-c", configPath)
+	cmd.Stdout, cmd.Stderr = logFile, logFile
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start sing-box: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	deadline := time.After(15 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return readLog(t, logPath), false
+		case <-deadline:
+			t.Fatalf("sing-box reported neither a start nor a failure within 15s:\n%s", readLog(t, logPath))
+		case <-ticker.C:
+			if strings.Contains(readLog(t, logPath), "sing-box started") {
+				_ = cmd.Process.Kill()
+				<-done
+				return readLog(t, logPath), true
+			}
+		}
+	}
+}
+
+// fatalLine returns the first FATAL line of a sing-box log, without the escape
+// sequences sing-box adds when it writes to a terminal.
+func fatalLine(log string) string {
+	clean := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(log, "")
+	for _, line := range strings.Split(clean, "\n") {
+		if strings.Contains(line, "FATAL") {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
+}
+
+// TestTemplatesWithoutTunStartUnderTheManagedBinary is the only test that proves
+// a starter really comes up. `sing-box check` only parses the file; sing-box runs
+// further checks when it starts, and a configuration rejected there is what the
+// user reports as "sing-box does not start".
+func TestTemplatesWithoutTunStartUnderTheManagedBinary(t *testing.T) {
+	binary := managedBinaryForTest(t)
+	if binary == "" {
+		t.Skip("no sing-box binary found; set SINGBOXUI_TEST_SINGBOX to start the templates")
+	}
+	t.Logf("starting templates with %s", binary)
+
+	for _, tpl := range All() {
+		t.Run(tpl.ID, func(t *testing.T) {
+			root, err := domainconfig.Parse([]byte(tpl.Config))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if hasTun(root) {
+				t.Skip("starting a TUN needs root; TestTemplatesWithTunOnlyFailWithoutPrivileges covers it")
+			}
+			log, started := startingTemplate(t, binary, tpl.Config)
+			if !started {
+				t.Fatalf("the %s template did not start:\n%s", tpl.ID, log)
+			}
+			// The DNS and route services start before the inbounds, so a server
+			// that cannot dial has already complained by now.
+			if fatal := fatalLine(log); fatal != "" {
+				t.Errorf("sing-box started but logged %s", fatal)
+			}
+		})
+	}
+}
+
+// TestTemplatesWithTunOnlyFailWithoutPrivileges starts the TUN templates too,
+// knowing they cannot succeed here: the suite never asks for root.
+//
+// What matters is *why* they fail. Anything about the configuration — a name the
+// platform refuses ("bad tun name: singboxui0" on macOS), a field this sing-box
+// release removed — is a template the user can never start, which is exactly the
+// "sing-box does not start" report. A missing privilege, on the other hand, is
+// the app's own business: it elevates through the privileged helper (spec §27).
+func TestTemplatesWithTunOnlyFailWithoutPrivileges(t *testing.T) {
+	binary := managedBinaryForTest(t)
+	if binary == "" {
+		t.Skip("no sing-box binary found; set SINGBOXUI_TEST_SINGBOX to start the templates")
+	}
+
+	configProblems := []string{
+		"bad tun name",
+		"decode config",
+		"detour to an empty",
+		"unknown field",
+		"legacy",
+	}
+	for _, tpl := range All() {
+		t.Run(tpl.ID, func(t *testing.T) {
+			root, err := domainconfig.Parse([]byte(tpl.Config))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if !hasTun(root) {
+				t.Skip("no TUN inbound; TestTemplatesWithoutTunStartUnderTheManagedBinary covers it")
+			}
+			log, started := startingTemplate(t, binary, tpl.Config)
+			if started {
+				return // running as root: the interface came up
+			}
+			fatal := fatalLine(log)
+			if fatal == "" {
+				t.Fatalf("sing-box neither started nor said why:\n%s", log)
+			}
+			for _, problem := range configProblems {
+				if strings.Contains(fatal, problem) {
+					t.Errorf("the %s template dies on its own configuration, not on missing privileges: %s", tpl.ID, fatal)
+				}
+			}
+		})
+	}
+}
+
+// hasTun reports whether a parsed configuration declares a TUN inbound, which is
+// what decides whether starting it needs privileges.
+func hasTun(root map[string]any) bool {
+	inbounds, _ := root["inbounds"].([]any)
+	for _, raw := range inbounds {
+		inbound, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if kind, _ := inbound["type"].(string); kind == "tun" {
+			return true
+		}
+	}
+	return false
+}
+
+// readLog returns the log written so far, or a placeholder when the file cannot
+// be read; the assertion that follows always explains the failure itself.
+func readLog(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "(the log could not be read: " + err.Error() + ")"
+	}
+	return string(raw)
 }
