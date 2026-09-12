@@ -196,6 +196,8 @@ func TestLocate(t *testing.T) {
 		settings settings.Settings
 		wantPath string
 		wantCode apperr.Code
+		// skipWindows marks a case about a permission bit Windows does not have.
+		skipWindows bool
 	}{
 		{
 			name:     "managed uses the recorded path",
@@ -248,6 +250,10 @@ func TestLocate(t *testing.T) {
 			name:     "custom non-executable file",
 			settings: settings.Settings{BinarySource: settings.BinaryCustom, CustomBinaryPath: plain},
 			wantCode: apperr.CodeBinaryNotFound,
+			// Windows records no execute bit, so a plain file is reported as
+			// potentially executable there and the probe is what refuses it; that
+			// path is covered by TestProbeAgainstFakeBinary.
+			skipWindows: true,
 		},
 		{
 			name:     "custom without a path",
@@ -263,6 +269,9 @@ func TestLocate(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			if test.skipWindows && runtime.GOOS == "windows" {
+				t.Skip("the platform records no execute bit, so this case cannot be expressed there")
+			}
 			got, err := Locate(test.managed, test.settings, paths)
 			if test.wantCode != "" {
 				if err == nil {

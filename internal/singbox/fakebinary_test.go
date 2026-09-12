@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/larffxx/singboxui/internal/platform/childrun"
 	"github.com/larffxx/singboxui/internal/singbox/faketest"
 )
 
@@ -192,7 +193,9 @@ func (p *fakeProcess) alive() bool {
 	if p.cmd.Process == nil {
 		return false
 	}
-	return p.cmd.Process.Signal(syscall.Signal(0)) == nil
+	// The platform's own answer: Windows does not implement signal 0 for a
+	// process, so probing with it reports every process as gone.
+	return childrun.Alive(p.cmd.Process.Pid)
 }
 
 func (p *fakeProcess) terminate(t *testing.T) {

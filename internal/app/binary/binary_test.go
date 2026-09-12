@@ -957,16 +957,28 @@ func TestSetSourceValidatesTheCustomBinary(t *testing.T) {
 		source  settings.BinarySource
 		path    string
 		wantErr apperr.Code
+		// skipWindows marks a case about a permission bit Windows does not have.
+		skipWindows bool
 	}{
 		{name: "unknown source", source: "whatever", wantErr: apperr.CodeSettingsInvalid},
 		{name: "custom without a path", source: settings.BinaryCustom, wantErr: apperr.CodeSettingsInvalid},
-		{name: "custom pointing at a plain file", source: settings.BinaryCustom, path: notExecutable, wantErr: apperr.CodeBinaryNotFound},
+		{
+			name: "custom pointing at a plain file", source: settings.BinaryCustom, path: notExecutable,
+			wantErr: apperr.CodeBinaryNotFound,
+			// Windows records no execute bit: a regular file is reported as
+			// potentially executable there and the probe is what refuses it, so the
+			// path check cannot make this case's point (ProbeBinary covers it).
+			skipWindows: true,
+		},
 		{name: "custom pointing at nothing", source: settings.BinaryCustom, path: filepath.Join(h.paths.DataDir, "absent"), wantErr: apperr.CodeBinaryNotFound},
 		{name: "custom executable", source: settings.BinaryCustom, path: executable},
 		{name: "back to managed", source: settings.BinaryManaged},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			if test.skipWindows && runtime.GOOS == "windows" {
+				t.Skip("the platform records no execute bit, so this case cannot be expressed there")
+			}
 			status, err := h.svc.SetSource(ctx, test.source, test.path)
 			if test.wantErr != "" {
 				wantCode(t, err, test.wantErr)
