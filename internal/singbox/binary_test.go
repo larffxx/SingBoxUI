@@ -23,6 +23,12 @@ func copyFakeBinary(t *testing.T, dir, name string) string {
 	if err != nil {
 		t.Fatalf("cannot read the fake sing-box: %v", err)
 	}
+	// The name carries the platform's program extension when it has none: Windows
+	// starts a program file only, so a copy called "sing-box" cannot be run there
+	// at all, whatever the adapter thinks of it.
+	if runtime.GOOS == "windows" && filepath.Ext(name) == "" {
+		name += ".exe"
+	}
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, raw, 0o755); err != nil {
 		t.Fatalf("cannot write %s: %v", path, err)
@@ -155,7 +161,10 @@ func TestIsExecutable(t *testing.T) {
 		want bool
 	}{
 		{name: "executable file", path: executable, want: true},
-		{name: "plain file", path: plain, want: false},
+		// Windows records no execute bit: there, any regular file is reported as
+		// potentially executable and the probe is what refuses it, so the contrast
+		// belongs to the platforms that record a permission bit.
+		{name: "plain file", path: plain, want: runtime.GOOS == "windows"},
 		{name: "directory", path: dir, want: false},
 		{name: "missing", path: filepath.Join(dir, "absent"), want: false},
 		{name: "empty", path: "", want: false},

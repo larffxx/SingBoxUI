@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -420,19 +419,10 @@ func waitFor(t *testing.T, what string, deadline time.Duration, cond func() bool
 // processAlive reports whether a pid still exists. Signal 0 probes without
 // delivering anything, so the process state is not perturbed.
 func processAlive(pid int) bool {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = proc.Signal(syscall.Signal(0))
-	if err == nil {
-		return true
-	}
-	if errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH) {
-		return false
-	}
-	// EPERM and anything else means the process exists but is not ours.
-	return true
+	// The platform's own answer, not os.Process.Signal(0): Windows does not
+	// implement signal 0 for a process handle, so every pid would look alive and
+	// "the process is gone" could never be asserted there.
+	return childrun.Alive(pid)
 }
 
 func assertDead(t *testing.T, pid int) {
@@ -626,8 +616,14 @@ func TestShutdownKillsAProcessThatIgnoresTheGracefulSignal(t *testing.T) {
 	if status.State != domruntime.StateStopped {
 		t.Fatalf("state = %s, want STOPPED", status.State)
 	}
-	if status.LastExitCode == nil || *status.LastExitCode >= 0 {
-		t.Fatalf("LastExitCode = %v, want a negative code for a signalled process", status.LastExitCode)
+	if status.LastExitCode == nil {
+		t.Fatal("no exit code was recorded for the killed process")
+	}
+	// A killed process reports a negative code (the signal) only where signals
+	// exist; Windows reports the code of the killer, so the assertion is about the
+	// platform it can be made on.
+	if runtime.GOOS != "windows" && *status.LastExitCode >= 0 {
+		t.Fatalf("LastExitCode = %d, want a negative code for a signalled process", *status.LastExitCode)
 	}
 	if _, ok := readFileIfExists(t, h.fakeStatusFile()); ok {
 		t.Fatal("the process wrote a graceful status file although it ignored SIGTERM")

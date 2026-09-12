@@ -903,8 +903,13 @@ func TestApplyWritesTheActiveConfigAtomically(t *testing.T) {
 	if got := readActive(t, h.paths.ActiveConfigPath); got != want {
 		t.Errorf("active configuration =\n%s\nwant\n%s", got, want)
 	}
-	if mode := fileMode(t, h.paths.ActiveConfigPath); mode.Perm() != 0o600 {
-		t.Errorf("active configuration mode = %v, want 0600 (it holds credentials)", mode.Perm())
+	// Windows records no permission bits, so the mode is asserted where the
+	// platform has the concept; the file is created by internal/atomicfile, which
+	// has its own tests for it.
+	if runtime.GOOS != "windows" {
+		if mode := fileMode(t, h.paths.ActiveConfigPath); mode.Perm() != 0o600 {
+			t.Errorf("active configuration mode = %v, want 0600 (it holds credentials)", mode.Perm())
+		}
 	}
 	if h.store.activeRevisionID("p-1") != saved.ID {
 		t.Errorf("active revision = %q, want %q", h.store.activeRevisionID("p-1"), saved.ID)
