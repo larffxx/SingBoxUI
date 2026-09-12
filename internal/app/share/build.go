@@ -238,7 +238,7 @@ func buildVmess(o map[string]any) (string, error) {
 	switch transportType {
 	case "ws", "http", "httpupgrade":
 		v["path"] = valueOr(asString(tr["path"]), "/")
-		if host := asString(tr["host"]); host != "" {
+		if host := transportHost(tr); host != "" {
 			v["host"] = host
 		}
 	case "grpc":
@@ -337,7 +337,7 @@ func exportTransportOptions(q *orderedQuery, o map[string]any) {
 	switch strings.ToLower(asString(tr["type"])) {
 	case "ws", "httpupgrade", "http":
 		q.set("path", valueOr(asString(tr["path"]), "/"))
-		if host := asString(tr["host"]); host != "" {
+		if host := transportHost(tr); host != "" {
 			q.set("host", host)
 		}
 	case "grpc":
@@ -345,4 +345,20 @@ func exportTransportOptions(q *orderedQuery, o map[string]any) {
 			q.set("serviceName", service)
 		}
 	}
+}
+
+// transportHost reads the Host a transport carries. A websocket transport keeps
+// it in headers["Host"], because sing-box 1.14 removed the flat `host` field and
+// refuses a configuration that still has one; the flat field is read as well so
+// an outbound written by an older build exports the link it came from.
+func transportHost(tr map[string]any) string {
+	if host := strings.TrimSpace(asString(tr["host"])); host != "" {
+		return host
+	}
+	for key, value := range asMap(tr["headers"]) {
+		if strings.EqualFold(strings.TrimSpace(key), "Host") {
+			return strings.TrimSpace(asString(value))
+		}
+	}
+	return ""
 }

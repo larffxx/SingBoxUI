@@ -166,7 +166,13 @@ export const TRANSPORT_FORM: SubFormSpec = {
       kind: 'select',
       options: selectOptions('http', 'ws', 'grpc', 'quic', 'httpupgrade'),
     },
-    { key: 'host', label: 'Host', kind: 'text', placeholder: 'example.com' },
+    {
+      key: 'host',
+      label: 'Host (HTTP, HTTPUpgrade)',
+      kind: 'text',
+      placeholder: 'example.com',
+      hint: 'WebSocket не принимает это поле: sing-box 1.14 читает Host из «Заголовки» как Host.',
+    },
     { key: 'path', label: 'Path', kind: 'text', placeholder: '/ws' },
     { key: 'method', label: 'Метод (HTTP)', kind: 'text' },
     {

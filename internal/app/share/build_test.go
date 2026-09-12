@@ -321,31 +321,37 @@ func TestBuildAcceptsTypeAliases(t *testing.T) {
 	}
 }
 
-// TestParseTransportVariants pins the network/transport mapping for every
-// transport family the importers understand.
+// TestParseTransportVariants pins the transport mapping for every transport
+// family the importers understand.
+//
+// The transport must not be repeated in the outbound's legacy `network` field:
+// sing-box accepts only `tcp`/`udp` there, and a transport name makes it refuse
+// the whole configuration ("outbounds[i].network: unknown network: grpc"), which
+// the app reports as a rejected profile and never starts (spec §37, §38). The
+// transport is expressed by `transport` alone.
 func TestParseTransportVariants(t *testing.T) {
 	tests := []struct {
-		name        string
-		link        string
-		wantNetwork string
-		wantType    string
-		wantPath    string
-		wantHost    string
-		wantService string
+		name           string
+		link           string
+		wantType       string
+		wantPath       string
+		wantHost       string
+		wantHeaderHost string
+		wantService    string
 	}{
-		{"default tcp", "vless://u@h:443?security=tls#x", "tcp", "", "", "", ""},
-		{"ws", "vless://u@h:443?security=tls&type=ws&path=%2Fa&host=cdn.example.com#x", "ws", "ws", "/a", "cdn.example.com", ""},
-		{"ws default path", "vless://u@h:443?security=tls&type=ws#x", "ws", "ws", "/", "", ""},
-		{"httpupgrade", "vless://u@h:443?security=tls&type=httpupgrade&path=%2Fb&host=cdn.example.com#x", "httpupgrade", "httpupgrade", "/b", "cdn.example.com", ""},
-		{"http", "vless://u@h:443?security=tls&type=http&path=%2Fc#x", "http", "http", "/c", "", ""},
-		{"grpc", "vless://u@h:443?security=tls&type=grpc&serviceName=svc#x", "grpc", "grpc", "", "", "svc"},
-		{"tcp header http", "vless://u@h:80?type=tcp&headerType=http&path=%2Fd#x", "tcp", "http", "/d", "", ""},
+		{"default tcp", "vless://u@h:443?security=tls#x", "", "", "", "", ""},
+		{"ws", "vless://u@h:443?security=tls&type=ws&path=%2Fa&host=cdn.example.com#x", "ws", "/a", "", "cdn.example.com", ""},
+		{"ws default path", "vless://u@h:443?security=tls&type=ws#x", "ws", "/", "", "", ""},
+		{"httpupgrade", "vless://u@h:443?security=tls&type=httpupgrade&path=%2Fb&host=cdn.example.com#x", "httpupgrade", "/b", "cdn.example.com", "", ""},
+		{"http", "vless://u@h:443?security=tls&type=http&path=%2Fc#x", "http", "/c", "", "", ""},
+		{"grpc", "vless://u@h:443?security=tls&type=grpc&serviceName=svc#x", "grpc", "", "", "", "svc"},
+		{"tcp header http", "vless://u@h:80?type=tcp&headerType=http&path=%2Fd#x", "http", "/d", "", "", ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := mustParse(t, tc.link)
-			if got := dig(p.Outbound, "network"); got != tc.wantNetwork {
-				t.Errorf("network = %v, want %v", got, tc.wantNetwork)
+			if got, ok := p.Outbound["network"]; ok {
+				t.Errorf("network = %v, want the field left out: sing-box 1.14 accepts only tcp/udp there and refuses the configuration otherwise", got)
 			}
 			tr, _ := p.Outbound["transport"].(map[string]any)
 			if tc.wantType == "" {
@@ -365,6 +371,17 @@ func TestParseTransportVariants(t *testing.T) {
 			}
 			if tc.wantHost != "" && tr["host"] != tc.wantHost {
 				t.Errorf("transport.host = %v, want %v", tr["host"], tc.wantHost)
+			}
+			// A websocket transport carries the Host header in `headers`, because
+			// sing-box 1.14 removed the flat `host` field from it.
+			headers, _ := tr["headers"].(map[string]any)
+			if tc.wantHeaderHost != "" {
+				if headers["Host"] != tc.wantHeaderHost {
+					t.Errorf("transport.headers.Host = %v, want %v", headers["Host"], tc.wantHeaderHost)
+				}
+				if _, present := tr["host"]; present {
+					t.Errorf("transport.host is still written for ws: sing-box refuses the configuration with `transport.host: unknown field`")
+				}
 			}
 			if tc.wantService != "" && tr["service_name"] != tc.wantService {
 				t.Errorf("transport.service_name = %v, want %v", tr["service_name"], tc.wantService)

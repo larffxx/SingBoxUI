@@ -39,7 +39,6 @@ func parseVless(raw string) (Parsed, error) {
 		"server":          host,
 		"server_port":     port,
 		"uuid":            uuid,
-		"network":         networkOf(q),
 		"packet_encoding": valueOr(strings.TrimSpace(q.Get("packetEncoding")), "xudp"),
 	}
 	if flow := strings.TrimSpace(q.Get("flow")); flow != "" {
@@ -86,7 +85,6 @@ func parseTrojan(raw string) (Parsed, error) {
 		"server":      host,
 		"server_port": port,
 		"password":    password,
-		"network":     networkOf(q),
 	}
 	// Trojan is a TLS protocol: TLS is on unless the link explicitly disables it.
 	if tls := applyTLS(q, true); tls != nil {
@@ -164,7 +162,6 @@ func parseShadowsocks(raw string) (Parsed, error) {
 		"server_port": port,
 		"method":      method,
 		"password":    password,
-		"network":     "tcp",
 	}
 	params, _ := url.ParseQuery(query)
 	if plugin := strings.TrimSpace(params.Get("plugin")); plugin != "" {
@@ -396,7 +393,6 @@ func parseVmess(raw string) (Parsed, error) {
 		"uuid":        uuid,
 		"alter_id":    intDefault(v["aid"], 0),
 		"security":    valueOr(strings.TrimSpace(asString(v["scy"])), valueOr(strings.TrimSpace(asString(v["security"])), "auto")),
-		"network":     network,
 	}
 
 	tlsMode := strings.ToLower(strings.TrimSpace(asString(v["tls"])))
@@ -442,11 +438,7 @@ func vmessTransport(v map[string]any, network string) map[string]any {
 	headerType := strings.ToLower(strings.TrimSpace(asString(v["type"])))
 	switch strings.ToLower(network) {
 	case "ws":
-		tr := map[string]any{"type": "ws", "path": valueOr(path, "/")}
-		if host != "" {
-			tr["host"] = host
-		}
-		return tr
+		return wsTransport(valueOr(path, "/"), host)
 	case "httpupgrade":
 		tr := map[string]any{"type": "httpupgrade", "path": valueOr(path, "/")}
 		if host != "" {
@@ -520,14 +512,19 @@ func applyTLS(q url.Values, defaultEnabled bool) map[string]any {
 
 // applyTransport maps the `type` (network) and its options onto a sing-box
 // transport object.
+//
+// The transport is written only as `transport`. Copying the same value into the
+// outbound's legacy `network` field poisons the whole configuration: since
+// sing-box 1.11 an outbound `network` is a NetworkList that accepts `tcp`/`udp`
+// and nothing else, so 1.14 refuses to decode a ws/grpc/httpupgrade/`http` link
+// with "outbounds[i].network: unknown network: grpc" — the app then reports the
+// profile as rejected and never starts it. Leaving the field out is also the
+// right semantics: an outbound without `network` carries both TCP and UDP,
+// while `network: "tcp"` would silently drop UDP.
 func applyTransport(q url.Values) map[string]any {
 	switch networkOf(q) {
 	case "ws":
-		tr := map[string]any{"type": "ws", "path": valueOr(q.Get("path"), "/")}
-		if host := q.Get("host"); host != "" {
-			tr["host"] = host
-		}
-		return tr
+		return wsTransport(valueOr(q.Get("path"), "/"), q.Get("host"))
 	case "httpupgrade":
 		tr := map[string]any{"type": "httpupgrade", "path": valueOr(q.Get("path"), "/")}
 		if host := q.Get("host"); host != "" {
@@ -552,6 +549,19 @@ func applyTransport(q url.Values) map[string]any {
 		}
 	}
 	return nil
+}
+
+// wsTransport builds a websocket transport. The Host header goes into `headers`,
+// not into a flat `host` field: sing-box 1.14 removed `host` from the websocket
+// transport (it is read back from headers["Host"]) and refuses a configuration
+// that still carries it with `transport.host: json: unknown field "host"`.
+// httpupgrade and http keep their own `host` field.
+func wsTransport(path, host string) map[string]any {
+	tr := map[string]any{"type": "ws", "path": valueOr(path, "/")}
+	if host != "" {
+		tr["headers"] = map[string]any{"Host": host}
+	}
+	return tr
 }
 
 func networkOf(q url.Values) string {
