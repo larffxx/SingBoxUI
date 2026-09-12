@@ -663,9 +663,36 @@ func TestStartRefusesWhileAlreadyRunning(t *testing.T) {
 func TestStartFailsWhenTheProcessExitsImmediately(t *testing.T) {
 	opts := defaultOptions()
 	opts.scenario = faketest.ScenarioRunCrash
+	// The crash ends the wait on its own, so a longer grace costs nothing here and
+	// keeps the assertion below from depending on how fast a loaded — and on CI,
+	// two-core — machine starts and reaps the process.
+	opts.timings.StartGrace = 5 * time.Second
 	h := newHarness(t, opts)
 
 	err := h.sup.StartProfile(context.Background(), "p-1")
+	if err == nil {
+		// The machine was too slow to notice the crash inside the grace, which is
+		// not a defect: what the supervisor must never do is keep a process that
+		// died during startup reported as RUNNING (spec §22). Wait for the
+		// transition instead of failing on its timing.
+		waitFor(t, "the crashed process to be reported as failed", 10*time.Second, func() bool {
+			return h.sup.Status().State == domruntime.StateFailed
+		})
+		status := h.sup.Status()
+		if status.LastErrorCode != string(apperr.CodeRuntimeStartFailed) {
+			t.Fatalf("LastErrorCode = %q, want %q", status.LastErrorCode, apperr.CodeRuntimeStartFailed)
+		}
+		if status.LastError == "" {
+			t.Fatal("no reason was reported for the process that died during startup")
+		}
+		if status.PID != 0 {
+			t.Fatalf("pid = %d, want 0 after a failed start", status.PID)
+		}
+		if h.sup.Running() {
+			t.Fatal("Running() = true although the process exited during startup")
+		}
+		return
+	}
 	if !apperr.IsCode(err, apperr.CodeRuntimeStartFailed) {
 		t.Fatalf("StartProfile = %v, want RUNTIME_START_FAILED", err)
 	}
