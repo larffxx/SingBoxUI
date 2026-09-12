@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +29,7 @@ import (
 	"github.com/larffxx/singboxui/internal/events"
 	"github.com/larffxx/singboxui/internal/platform"
 	"github.com/larffxx/singboxui/internal/privilege"
+	"github.com/larffxx/singboxui/internal/singbox/faketest"
 	"github.com/larffxx/singboxui/internal/storage/sqlite"
 )
 
@@ -752,16 +754,7 @@ func TestConfigFacadeDraftValidateAndApply(t *testing.T) {
 	// Applying runs the validator, so the application needs a sing-box to point
 	// at: a stand-in that answers "version" and accepts everything it is asked
 	// to check.
-	fakeBinary := filepath.Join(h.dir, "sing-box")
-	script := "#!/bin/sh\n" +
-		"case \"$1\" in\n" +
-		"  version) echo 'sing-box version 1.12.0' ;;\n" +
-		"  check) exit 0 ;;\n" +
-		"  *) exit 0 ;;\n" +
-		"esac\n"
-	if err := os.WriteFile(fakeBinary, []byte(script), 0o755); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	fakeBinary := placeFakeSingbox(t, h.dir, "sing-box")
 	if source := h.app.BinaryAPI.SetBinarySource("custom", fakeBinary); source.Error != nil {
 		t.Fatalf("SetBinarySource: %+v", source.Error)
 	}
@@ -940,10 +933,9 @@ func TestConfigFacadeDetectsAndImportsThePrototypeFiles(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(proto, "bin"), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	binaryPath := filepath.Join(proto, "bin", "sing-box")
-	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	// The prototype shipped bin/sing-box; the platform name is what the detection
+	// looks for, and only a program file can be started on Windows.
+	binaryPath := placeFakeSingbox(t, filepath.Join(proto, "bin"), "sing-box")
 	settingsPath := filepath.Join(proto, "ui-settings.json")
 	if err := os.WriteFile(settingsPath, []byte(`{"autoConnect":true}`), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -1608,10 +1600,11 @@ func TestBinaryFacadeStatusAndSourceSelection(t *testing.T) {
 
 	// A custom path that is not a sing-box is refused, and the previous
 	// selection stays in force.
-	impostor := filepath.Join(h.dir, "impostor")
-	if err := os.WriteFile(impostor, []byte("#!/bin/sh\necho 'not a proxy'\n"), 0o755); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	// A program that exists but reports junk instead of a sing-box version. It is
+	// the same stand-in with a scenario, not a shell script, so the case exists on
+	// every platform.
+	t.Setenv(faketest.EnvScenario, faketest.ScenarioVersionFail)
+	impostor := placeFakeSingbox(t, h.dir, "impostor")
 	if got := api.SetBinarySource("custom", impostor); got.Error == nil {
 		t.Error("SetBinarySource accepted a program that is not sing-box")
 	} else if got.Error.Code != apperr.CodeBinarySourceInvalid {
@@ -1623,11 +1616,8 @@ func TestBinaryFacadeStatusAndSourceSelection(t *testing.T) {
 
 	// Selecting a custom binary probes it first, so the file has to be a working
 	// sing-box.
-	custom := filepath.Join(h.dir, "sing-box")
-	script := "#!/bin/sh\necho 'sing-box version 1.12.0'\n"
-	if err := os.WriteFile(custom, []byte(script), 0o755); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	os.Unsetenv(faketest.EnvScenario)
+	custom := placeFakeSingbox(t, h.dir, "sing-box")
 	switched := api.SetBinarySource("custom", "  "+custom+"  ")
 	if switched.Error != nil {
 		t.Fatalf("SetBinarySource(custom): %+v", switched.Error)
@@ -1681,6 +1671,14 @@ func TestBinaryFacadeProbesAnExecutable(t *testing.T) {
 	})
 
 	t.Run("a sing-box reporting its version", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			// The fixture records its own arguments, which only a shell script can
+			// do here, and Windows starts nothing but a program file. The probe
+			// arguments are asserted on the platforms that can run it; the version
+			// a probe reads is asserted by the tests above, which use the
+			// package's stand-in sing-box.
+			t.Skip("recording the probe arguments needs a script, which Windows cannot start")
+		}
 		marker := filepath.Join(h.dir, "args.txt")
 		path := filepath.Join(h.dir, "sing-box")
 		script := "#!/bin/sh\nprintf '%s' \"$*\" > " + marker + "\necho 'sing-box version 9.9.9'\n"

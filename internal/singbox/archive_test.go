@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -429,7 +430,10 @@ func TestExtractBinary(t *testing.T) {
 			if err != nil {
 				t.Fatalf("the extracted executable is missing: %v", err)
 			}
-			if info.Mode().Perm()&0o111 == 0 {
+			// Windows records no permission bits: a file there is executable by
+			// its extension, and the installed copy keeps the name it was
+			// extracted under, which TestExtractBundleInstallsCompanions asserts.
+			if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 				t.Errorf("mode = %s, want the executable bit set", info.Mode())
 			}
 			raw, err := os.ReadFile(got)

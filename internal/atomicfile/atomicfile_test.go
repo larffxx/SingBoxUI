@@ -3,9 +3,28 @@ package atomicfile
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// requireMode asserts the permission bits a Unix system records. Windows keeps
+// none: a file there is readable and writable by its owner whatever mode the
+// caller passed, so the assertion belongs to the platforms that have the concept
+// rather than being weakened everywhere.
+func requireMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if perm := info.Mode().Perm(); perm != want {
+		t.Errorf("mode = %o, want %o", perm, want)
+	}
+}
 
 // tempLeftovers reports the temporary files Write may have left behind in dir.
 // The implementation names them "."+base+".tmp-*", so a glob on that shape is
@@ -51,13 +70,7 @@ func TestWriteCreatesNewFileWithContentAndMode(t *testing.T) {
 			if string(got) != tc.data {
 				t.Errorf("content = %q, want %q", got, tc.data)
 			}
-			info, err := os.Stat(path)
-			if err != nil {
-				t.Fatalf("stat written file: %v", err)
-			}
-			if perm := info.Mode().Perm(); perm != tc.perm {
-				t.Errorf("mode = %o, want %o", perm, tc.perm)
-			}
+			requireMode(t, path, tc.perm)
 			if leftovers := tempLeftovers(t, filepath.Dir(path)); len(leftovers) != 0 {
 				t.Errorf("temporary files left behind: %v", leftovers)
 			}
@@ -85,13 +98,7 @@ func TestWriteReplacesExistingFileAndAppliesNewMode(t *testing.T) {
 	if string(got) != "second" {
 		t.Errorf("content = %q, want %q", got, "second")
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat replaced file: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o644 {
-		t.Errorf("mode = %o, want 644", perm)
-	}
+	requireMode(t, path, 0o644)
 	if leftovers := tempLeftovers(t, dir); len(leftovers) != 0 {
 		t.Errorf("temporary files left behind: %v", leftovers)
 	}
@@ -103,6 +110,9 @@ func TestWriteReplacesExistingFileAndAppliesNewMode(t *testing.T) {
 func TestWriteLeavesOriginalIntactWhenDirectoryIsNotWritable(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: directory permissions do not deny writes")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only directory does not deny writes on Windows; the ACL decides")
 	}
 	t.Parallel()
 
@@ -129,13 +139,7 @@ func TestWriteLeavesOriginalIntactWhenDirectoryIsNotWritable(t *testing.T) {
 	if string(got) != "original" {
 		t.Errorf("content = %q, want the untouched %q", got, "original")
 	}
-	info, statErr := os.Stat(path)
-	if statErr != nil {
-		t.Fatalf("stat original file: %v", statErr)
-	}
-	if perm := info.Mode().Perm(); perm != 0o640 {
-		t.Errorf("mode = %o, want the preserved 640", perm)
-	}
+	requireMode(t, path, 0o640)
 	if leftovers := tempLeftovers(t, dir); len(leftovers) != 0 {
 		t.Errorf("temporary files left behind: %v", leftovers)
 	}
@@ -197,13 +201,7 @@ func TestWriteFileBehavesLikeWrite(t *testing.T) {
 	if string(got) != `{"running":true}` {
 		t.Errorf("content = %q", got)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat written file: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("mode = %o, want 600", perm)
-	}
+	requireMode(t, path, 0o600)
 	if leftovers := tempLeftovers(t, filepath.Dir(path)); len(leftovers) != 0 {
 		t.Errorf("temporary files left behind: %v", leftovers)
 	}
@@ -231,13 +229,7 @@ func TestCopyFileCopiesContentAndMode(t *testing.T) {
 		if string(got) != "payload" {
 			t.Errorf("content = %q, want %q", got, "payload")
 		}
-		info, err := os.Stat(dst)
-		if err != nil {
-			t.Fatalf("stat destination: %v", err)
-		}
-		if perm := info.Mode().Perm(); perm != 0o640 {
-			t.Errorf("mode = %o, want 640", perm)
-		}
+		requireMode(t, dst, 0o640)
 		if leftovers := tempLeftovers(t, filepath.Dir(dst)); len(leftovers) != 0 {
 			t.Errorf("temporary files left behind: %v", leftovers)
 		}

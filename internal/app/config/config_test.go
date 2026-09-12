@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -64,7 +65,10 @@ func buildFakeSingBox() (string, func(), error) {
 	}
 	cleanup := func() { os.RemoveAll(dir) }
 
-	path := filepath.Join(dir, "sing-box")
+	// The fixture carries the platform's executable name: Windows only starts a
+	// file whose extension is in PATHEXT, so a fixture called "sing-box" cannot
+	// be run there at all, and every test that runs it would fail for that reason.
+	path := filepath.Join(dir, singbox.ExecutableName(runtime.GOOS))
 	build := exec.Command(goTool, "build", "-o", path, "./cmd/fakesingbox")
 	build.Dir = root
 	build.Stdout, build.Stderr = os.Stderr, os.Stderr

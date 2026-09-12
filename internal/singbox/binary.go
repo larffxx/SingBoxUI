@@ -90,8 +90,9 @@ func Probe(ctx context.Context, path string) (Version, error) {
 // IsExecutable reports whether path is a regular file this process may execute.
 //
 // It exists so the "is the configured binary usable" question is answered the
-// same way everywhere; on Windows there is no execute bit, so the regular-file
-// check plus Probe is as far as a path-only test can honestly go.
+// same way everywhere. On Windows there is no execute bit, so the name itself is
+// the signal: only a program file can be started, and a path that points at, say,
+// a configuration file has to be refused before it is probed.
 func IsExecutable(path string) bool {
 	if strings.TrimSpace(path) == "" {
 		return false
@@ -101,7 +102,11 @@ func IsExecutable(path string) bool {
 		return false
 	}
 	if runtime.GOOS == "windows" {
-		return true
+		switch strings.ToLower(filepath.Ext(path)) {
+		case ".exe", ".com":
+			return true
+		}
+		return false
 	}
 	return info.Mode().Perm()&0o111 != 0
 }

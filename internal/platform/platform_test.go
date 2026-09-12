@@ -53,10 +53,21 @@ func (stubRunner) Start(context.Context, privilege.Request) (privilege.Process, 
 
 func (stubRunner) Supported() (bool, string) { return false, "the test runner does not elevate" }
 
+// documentedLayoutRoot is the example data directory the layout contract names on
+// this platform: the macOS one (internal-contracts.md §2) or the Windows one the
+// platform adapter resolves. It is absolute on the host the suite runs on, which a
+// POSIX path is not on Windows.
+func documentedLayoutRoot() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(`C:\`, "Users", "someone", "AppData", "Local", "SingBoxUI")
+	}
+	return filepath.Join(string(filepath.Separator), "Users", "someone", "Library", "Application Support", "SingBoxUI")
+}
+
 func TestLayoutIsTheDocumentedDataDirectory(t *testing.T) {
 	// internal-contracts.md §2 fixes the layout; every path is derived from the
 	// data directory and nothing from the working directory.
-	root := string(filepath.Separator) + filepath.Join("Users", "someone", "Library", "Application Support", "SingBoxUI")
+	root := documentedLayoutRoot()
 	paths := layout(root)
 	configDir := filepath.Join(root, "config")
 

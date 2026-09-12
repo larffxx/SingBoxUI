@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,13 +57,17 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "cannot locate the module root: %v\n", err)
 		os.Exit(1)
 	}
-	build := exec.Command("go", "build", "-o", filepath.Join(dir, "sing-box"), "./cmd/fakesingbox")
+	// The fixture carries the platform's executable name: Windows only starts a
+	// file whose extension is in PATHEXT, so a fixture called "sing-box" cannot
+	// be run there at all.
+	fakeName := singbox.ExecutableName(runtime.GOOS)
+	build := exec.Command("go", "build", "-o", filepath.Join(dir, fakeName), "./cmd/fakesingbox")
 	build.Dir = root
 	if out, buildErr := build.CombinedOutput(); buildErr != nil {
 		fmt.Fprintf(os.Stderr, "cannot build the fake sing-box: %v\n%s\n", buildErr, out)
 		os.Exit(1)
 	}
-	fakeBinary = filepath.Join(dir, "sing-box")
+	fakeBinary = filepath.Join(dir, fakeName)
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)

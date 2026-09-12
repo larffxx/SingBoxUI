@@ -652,7 +652,9 @@ func TestInstallStableUpdateInstallsTheVerifiedBinary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat %s: %v", target, err)
 	}
-	if info.Mode().Perm() != 0o755 {
+	// Windows records no permission bits, so only the platforms that have them
+	// can assert the installed mode; the file is runnable there by its name.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o755 {
 		t.Errorf("installed mode = %v, want 0755", info.Mode().Perm())
 	}
 	if current := h.record(t); current.Version != "1.15.0" || current.Path != target {

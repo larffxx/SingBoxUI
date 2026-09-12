@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -324,7 +325,13 @@ func TestStopVerifiedEscalatesToAKill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StopVerified: %v", err)
 	}
-	if !result.Stopped || !result.Forced {
+	if !result.Stopped {
+		t.Errorf("StopVerified = %+v, want the process stopped", result)
+	}
+	// Windows has no SIGTERM: the graceful attempt is taskkill without /F, which
+	// stops the stand-in outright, so an escalation to a kill is not observable
+	// there — the process is gone either way, which is what the caller needs.
+	if runtime.GOOS != "windows" && !result.Forced {
 		t.Errorf("StopVerified = %+v, want a process that had to be killed", result)
 	}
 	if err := cfg.Validate(); err != nil {
@@ -355,6 +362,9 @@ func TestStopVerifiedKillsOnRequest(t *testing.T) {
 }
 
 func TestStopVerifiedStopsWhenTheContextEnds(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("there is no SIGTERM to ignore on Windows: taskkill stops the stand-in at once, so the escalation this case asserts does not exist")
+	}
 	asTestChild(t, modeStubborn)
 	cfg := fixture(t)
 	setup, cancelSetup := context.WithTimeout(context.Background(), 30*time.Second)

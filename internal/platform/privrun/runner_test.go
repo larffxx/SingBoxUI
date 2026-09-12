@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -105,8 +106,16 @@ func TestStartWithoutElevationSupervisesTheChild(t *testing.T) {
 		// Exited reports the reaped state, so the wait is what makes the stop
 		// observable; it returns as soon as the stand-in sing-box is gone.
 		code, err := process.Wait()
-		if err != nil || code != 0 {
-			t.Errorf("Wait() = (%d, %v), want (0, nil)", code, err)
+		switch {
+		case err != nil:
+			t.Errorf("Wait() = (%d, %v), want the exit code of the stand-in", code, err)
+		case runtime.GOOS == "windows":
+			// Windows has no signals: the stop is a console event the child cannot
+			// handle, so the exit code is the platform's, not 0. What the caller
+			// needs is asserted below — the process is gone and no longer reported
+			// as running.
+		case code != 0:
+			t.Errorf("Wait() = (%d, nil), want 0", code)
 		}
 		if !process.Exited() {
 			t.Error("the process is still reported as running after it exited")
