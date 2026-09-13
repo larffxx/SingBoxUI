@@ -30,7 +30,7 @@ Legend: **KEEP** (same feature, new implementation) · **IMPROVE** (feature kept
 | 23 | Templates | 3 bundled JSONs, overwrite config | 5 starters (`Empty`, `TUN basic`, `TUN + VLESS Reality`, `SOCKS local proxy`, `Selector`) → new revision | IMPROVE |
 | 24 | Autostart | macOS LaunchAgent (`java -jar`), Windows `HKCU\...\Run` (`javaw`) | `platform.Autostart` interface, points at the native app | KEEP |
 | 25 | Auto-connect | `StartupTasks` delayed start | settings-driven auto-connect with validation gate and persistent error surface | IMPROVE |
-| 26 | System tray | AWT `SystemTray` icon | — | REMOVE (§10) |
+| 26 | System tray | AWT `SystemTray` icon | `internal/tray` (macOS menu bar) + `desktop/tray.go` (ADR 010) | ADD |
 | 27 | Whole-app elevation | `PrivilegeEscalation` relaunch as root/Administrator | narrow privileged runtime launch (`internal/privilege`, ADR 005) | REMOVE/ADD |
 | 28 | Browser UI on `localhost:8000` | Spring MVC + Thymeleaf + `app.js` | Wails webview + React | REMOVE |
 | 29 | REST API | 30+ `/api/*` endpoints | Wails bindings (no network surface) | REMOVE |

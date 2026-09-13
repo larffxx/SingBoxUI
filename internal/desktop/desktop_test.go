@@ -31,6 +31,7 @@ import (
 	"github.com/larffxx/singboxui/internal/privilege"
 	"github.com/larffxx/singboxui/internal/singbox/faketest"
 	"github.com/larffxx/singboxui/internal/storage/sqlite"
+	"github.com/larffxx/singboxui/internal/tray"
 )
 
 // The desktop layer is reachable without a webview because App.New takes its
@@ -270,6 +271,8 @@ type harness struct {
 	store *sqlite.Store
 	paths platform.Paths
 	dir   string
+	// tray records what the menu bar was told to draw (spec §10).
+	tray *fakeTrayDriver
 }
 
 func newHarness(t *testing.T, options ...func(*Deps)) *harness {
@@ -286,6 +289,7 @@ func newHarness(t *testing.T, options ...func(*Deps)) *harness {
 	}
 	rec := &recorder{}
 	emitter := NewEmitterWithSink(quietLogger(), rec.sink)
+	driver := &fakeTrayDriver{}
 	deps := Deps{
 		Logger:     quietLogger(),
 		Store:      store,
@@ -297,6 +301,12 @@ func newHarness(t *testing.T, options ...func(*Deps)) *harness {
 		Version:    testVersion,
 		GOOS:       "darwin",
 		GOARCH:     "arm64",
+		// The menu bar is a real status item on macOS: a test that runs the
+		// startup hook would otherwise put one into the developer's menu bar.
+		NewTray: func(opts tray.Options) (tray.Driver, error) {
+			driver.configure(opts)
+			return driver, nil
+		},
 	}
 	// A test that needs a seam the real process supplies at runtime — the native
 	// file picker, for instance — overrides it before the graph is built.
@@ -308,7 +318,7 @@ func newHarness(t *testing.T, options ...func(*Deps)) *harness {
 	// way the Wails startup hook attaches the real one.
 	emitter.Attach(context.Background())
 	t.Cleanup(func() { app.OnShutdown(context.Background()) })
-	return &harness{app: app, plat: plat, rec: rec, store: store, paths: paths, dir: dir}
+	return &harness{app: app, plat: plat, rec: rec, store: store, paths: paths, dir: dir, tray: driver}
 }
 
 // createProfile creates a profile through the bound facade and fails the test if

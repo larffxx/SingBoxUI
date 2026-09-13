@@ -79,7 +79,7 @@ Java sources: 17 files, 2801 lines. Frontend: 3 files, 757 lines. No test source
 | `SettingsService` | 54 | single `{autoConnect}` flag in `ui-settings.json` | REPLACE by typed SQLite settings |
 | `AutostartService` | 176 | macOS LaunchAgent plist / Windows `HKCU\...\Run` (`reg.exe`) | KEEP (feature), reimplemented behind `Autostart` interface in `internal/platform` |
 | `StartupTasks` | 36 | delayed auto-connect on startup | KEEP (feature) → `app/settings` + `app/runtime` auto-connect |
-| `TrayService` | 178 | AWT tray icon, start/stop/quit, 3 s refresh watcher | REMOVE (spec §10 — no tray in the rewrite) |
+| `TrayService` | 178 | AWT tray icon, start/stop/quit, 3 s refresh watcher | REPLACE by `internal/tray` — a native macOS menu bar item with no watcher: the menu follows events (ADR 007, ADR 010) |
 | `PrivilegeEscalation` | 203 | detects port already used → opens browser; if config has `tun` and running from a packaged `.app`/`.exe` → relaunches the whole app via `osascript ... with administrator privileges` / `powershell Start-Process -Verb RunAs`; `SINGBOXUI_ELEVATED=1` guard | REMOVE (spec §9/§27) — replaced by a narrow privileged runtime launch (ADR 005) |
 | `SingBoxProperties`, `PropsConfig` | 63 | config-path resolution, data dir (`cwd` if writable else `~/.singboxui`) | REPLACE by `internal/platform` data-dir resolution |
 | `ApiErrors` | 15 | error DTO | REPLACE by typed error codes in `domain/apperr` |
@@ -202,5 +202,5 @@ privilege model (narrow privileged launch), packaging (Wails, no Java/Node runti
 (React/TS/Vite + Monaco), validation (server-authoritative via the real binary).
 
 REMOVE: Spring Boot, Java, Maven, Thymeleaf, `static/app.js` + `static/style.css`, REST API, HTTP server,
-AWT tray, whole-app elevation, `run.sh`/`run.bat`/`SingBoxUI.command`, `jpackage` workflow, committed
+AWT tray (replaced by a native menu bar item, ADR 010), whole-app elevation, `run.sh`/`run.bat`/`SingBoxUI.command`, `jpackage` workflow, committed
 release zips, stale `Dockerfile`/`HELP.md` references.

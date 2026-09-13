@@ -21,6 +21,7 @@ import (
 	"github.com/larffxx/singboxui/internal/privilege"
 	"github.com/larffxx/singboxui/internal/singbox"
 	"github.com/larffxx/singboxui/internal/storage/sqlite"
+	"github.com/larffxx/singboxui/internal/tray"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -52,6 +53,20 @@ type Deps struct {
 	// import. A nil value uses the Wails dialog, which needs a live window;
 	// a test injects a stub so the import path stays testable (spec §63).
 	OpenFileDialog func(ctx context.Context, options wruntime.OpenDialogOptions) (string, error)
+	// NewTray builds the menu bar driver. A nil value uses the platform's own:
+	// macOS has a menu bar, every other platform reports tray.ErrUnsupported,
+	// which is an expected answer rather than a failure. A test injects a
+	// stand-in so it can assert the menu without a menu bar (spec §63).
+	NewTray func(tray.Options) (tray.Driver, error)
+	// RuntimeStatus reads the state the menu bar shows. A nil value reads the
+	// supervisor, which is the only source of truth in production; a test
+	// injects one to ask about a state the machine cannot be put into on demand.
+	RuntimeStatus func() domruntime.Status
+	// ShowWindow and Quit are the window-bound Wails calls the menu bar makes.
+	// Nil values call the Wails runtime, which needs a live window; a test
+	// injects stubs so the menu stays testable without a webview (spec §63).
+	ShowWindow func(ctx context.Context)
+	Quit       func(ctx context.Context)
 }
 
 // App is the root object bound to the frontend. It owns the application
@@ -69,6 +84,8 @@ type App struct {
 	config   *configsvc.Service
 	profiles *profiles.Service
 	runtime  *appruntime.Supervisor
+	// tray is the menu bar presence of the application (spec §10).
+	tray *trayPresenter
 
 	mu         sync.RWMutex
 	rootCtx    context.Context
@@ -198,6 +215,18 @@ func New(deps Deps) *App {
 		cancelRoot: cancel,
 	}
 	paths := deps.Platform.Paths()
+	a.tray = newTrayPresenter(a, deps)
+
+	// The menu bar shows the same state the window shows, so it follows the
+	// events the services already emit instead of polling the runtime (spec
+	// §46): one fan-out, and every service keeps emitting to its own emitter.
+	appEvents := events.EmitterFunc(func(name string, payload any) {
+		a.emitter.Emit(name, payload)
+		switch name {
+		case events.RuntimeStatus, events.ProfilesChanged:
+			a.tray.refreshed()
+		}
+	})
 
 	a.binaries = appbinary.New(appbinary.Deps{
 		Store:   deps.Store,
@@ -243,7 +272,7 @@ func New(deps Deps) *App {
 		Binaries: a.binaries,
 		Runtime:  link,
 		Paths:    paths,
-		Emitter:  a.emitter,
+		Emitter:  appEvents,
 		Logger:   logger,
 	})
 
@@ -252,7 +281,7 @@ func New(deps Deps) *App {
 		Config:    link,
 		Binaries:  a.binaries,
 		Privilege: deps.Privilege,
-		Emitter:   a.emitter,
+		Emitter:   appEvents,
 		Logger:    logger,
 		Paths:     paths,
 		Observer:  &runtimeObserver{app: a},
@@ -262,7 +291,7 @@ func New(deps Deps) *App {
 	})
 	link.wire(a.config, a.runtime)
 
-	a.profiles = profiles.New(deps.Store, a.runtime, a.emitter, logger, profiles.Options{
+	a.profiles = profiles.New(deps.Store, a.runtime, appEvents, logger, profiles.Options{
 		NewID: nil,
 		Now:   deps.Now,
 	})
@@ -292,6 +321,10 @@ func (a *App) OnStartup(ctx context.Context) {
 	a.mu.Unlock()
 
 	a.emitter.Attach(ctx)
+	// The menu bar is created after the emitter is attached and before the
+	// first use case runs, so the icon is already showing when auto-connect
+	// starts a profile.
+	a.tray.start(a.rootCtx)
 	info := a.plat.Info()
 	a.logger.Info("singboxui started",
 		"version", a.deps.Version,
@@ -322,6 +355,18 @@ func (a *App) runtimeCtx() context.Context {
 		return a.wailsCtx
 	}
 	return a.rootCtx
+}
+
+// liveCtx returns the Wails context only when the application is actually
+// running under it. A Wails runtime call outside a session does not fail — it
+// panics — so a caller that would make one has to ask first (spec §63).
+func (a *App) liveCtx() (context.Context, bool) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.wailsCtx == nil {
+		return nil, false
+	}
+	return a.wailsCtx, true
 }
 
 // autoConnect starts the last active profile once, if the user enabled it
@@ -358,6 +403,10 @@ func (a *App) OnShutdown(context.Context) {
 
 	a.logger.Info("singboxui shutting down")
 	a.cancelRoot()
+
+	// The icon leaves with the application; there is no menu bar item to click
+	// once the process that owns it is gone.
+	a.tray.hide()
 
 	if a.traffic != nil {
 		a.traffic.Stop()
