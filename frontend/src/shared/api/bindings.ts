@@ -127,6 +127,9 @@ export const runtimeApi = {
   tailLogs: async (afterSeq: number): Promise<desktop.LogsPayload> =>
     unwrap(await RuntimeAPI.TailLogs(afterSeq)),
   clearLogs: async (): Promise<desktop.LogsPayload> => unwrap(await RuntimeAPI.ClearLogs()),
+  /** Stops the sing-box processes this application did not start (ADR 012). */
+  stopForeignProcesses: async (): Promise<desktop.RuntimePayload> =>
+    unwrap(await RuntimeAPI.StopForeignProcesses()),
 }
 
 /** BinaryAPI — managed sing-box release channel (spec §17–§21). */

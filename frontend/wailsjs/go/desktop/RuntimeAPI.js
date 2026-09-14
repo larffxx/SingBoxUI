@@ -22,6 +22,10 @@ export function StartRuntime(arg1) {
   return window['go']['desktop']['RuntimeAPI']['StartRuntime'](arg1);
 }
 
+export function StopForeignProcesses() {
+  return window['go']['desktop']['RuntimeAPI']['StopForeignProcesses']();
+}
+
 export function StopRuntime() {
   return window['go']['desktop']['RuntimeAPI']['StopRuntime']();
 }

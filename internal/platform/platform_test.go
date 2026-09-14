@@ -66,6 +66,8 @@ func (stubRunner) Start(context.Context, privilege.Request) (privilege.Process, 
 	return nil, privilege.ErrUnsupported
 }
 
+func (stubRunner) Stop(context.Context, string, bool) error { return privilege.ErrUnsupported }
+
 func (stubRunner) Supported() (bool, string) { return false, "the test runner does not elevate" }
 
 // documentedLayoutRoot is the example data directory the layout contract names on

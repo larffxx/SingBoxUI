@@ -56,6 +56,7 @@ describe('applyRuntimeStatus', () => {
       binaryVersion: '1.10.0',
       trafficAvailable: true,
       shuttingDown: false,
+      foreignProcesses: [],
     }
     client.setQueryData(keys.runtime.status(), seeded)
 

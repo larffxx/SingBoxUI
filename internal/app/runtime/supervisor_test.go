@@ -157,6 +157,10 @@ func newHarness(t *testing.T, opts options) *harness {
 		Observer:       h.observer,
 		Timings:        opts.timings,
 		LogFlushPeriod: 10 * time.Millisecond,
+		// The machine is not searched by default: a developer may well be
+		// running a core, and the suite must not depend on it (ADR 012). The
+		// tests that cover the search inject their own answer.
+		Foreign: func(context.Context) ([]int, error) { return nil, nil },
 	}
 	if !opts.emitterDisabled {
 		deps.Emitter = h.emitter
@@ -228,9 +232,27 @@ func (h *harness) sawState(state domruntime.State) bool {
 type fakeLauncher struct {
 	mu       sync.Mutex
 	requests []privilege.Request
+	// stops records every pid file a stop was asked for (ADR 012).
+	stops    []string
+	stopErr  error
 	binary   string
 	scenario string
 	err      error
+}
+
+// Stop records the request and answers with the configured error: the real
+// runner escalates to the privileged helper, which a unit test must not do.
+func (f *fakeLauncher) Stop(_ context.Context, pidPath string, _ bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stops = append(f.stops, pidPath)
+	return f.stopErr
+}
+
+func (f *fakeLauncher) stoppedPaths() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.stops...)
 }
 
 func (f *fakeLauncher) Start(ctx context.Context, req privilege.Request) (privilege.Process, error) {

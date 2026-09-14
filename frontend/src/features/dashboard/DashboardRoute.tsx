@@ -51,6 +51,7 @@ import {
   StatusDot,
 } from '@/shared/ui'
 
+import { ForeignRuntimeNotice } from '@/features/runtime/ForeignRuntimeNotice'
 import {
   exitCodeLabel,
   isRuntimeBusy,
@@ -175,6 +176,8 @@ export function DashboardRoute(): React.ReactElement {
           {binaryQuery.data.status.checkError}
         </Alert>
       ) : null}
+
+      <ForeignRuntimeNotice />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

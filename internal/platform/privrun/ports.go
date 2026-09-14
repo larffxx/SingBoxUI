@@ -2,6 +2,7 @@ package privrun
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -86,6 +87,18 @@ func childrunReadStatus(path string) (childrun.Status, error) { return childrun.
 
 // childrunAlivePID reports whether a recorded process is still running.
 func childrunAlivePID(pid int) bool { return childrun.Alive(pid) }
+
+// childrunStopVerified stops a recorded process with the rights this process
+// has, verifying the recorded identity before signalling (ADR 012).
+func childrunStopVerified(ctx context.Context, pidPath string, force bool) (childrun.StopResult, error) {
+	return childrun.StopVerified(ctx, pidPath, force, 0)
+}
+
+// childrunNotPermitted reports whether a signal was refused because the target
+// belongs to another user: the one reason to escalate a stop.
+func childrunNotPermitted(err error) bool {
+	return errors.Is(err, childrun.ErrNotPermitted)
+}
 
 // childrunTail follows the log file of a managed process.
 func childrunTail(ctx context.Context, path string, exited func() bool) io.ReadCloser {

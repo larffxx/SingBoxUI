@@ -289,10 +289,12 @@ type fakeRunner struct {
 	supported bool
 	reason    string
 	startErr  error
+	stopErr   error
 	process   *fakeProcess
 
 	mu       sync.Mutex
 	started  []Request
+	stopped  []string
 	contexts []context.Context
 }
 
@@ -308,6 +310,14 @@ func (r *fakeRunner) Start(ctx context.Context, req Request) (Process, error) {
 		return nil, ErrUnsupported
 	}
 	return r.process, nil
+}
+
+// Stop records the pid file a stop was asked for (ADR 012).
+func (r *fakeRunner) Stop(_ context.Context, pidPath string, _ bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stopped = append(r.stopped, pidPath)
+	return r.stopErr
 }
 
 func (r *fakeRunner) Supported() (bool, string) { return r.supported, r.reason }

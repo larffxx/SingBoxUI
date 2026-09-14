@@ -19,7 +19,12 @@ type RuntimePayload struct {
 	BinaryVersion     string            `json:"binaryVersion"`
 	TrafficAvailable  bool              `json:"trafficAvailable"`
 	ShuttingDown      bool              `json:"shuttingDown"`
-	Error             *apperr.Error     `json:"error,omitempty"`
+	// ForeignProcesses are sing-box processes that are running a configuration
+	// and that this application did not start (ADR 012). A profile cannot start
+	// while one of them holds the TUN device and the ports, so the runtime screen
+	// shows them and offers to stop the ones that left a record.
+	ForeignProcesses []runtime.ForeignProcess `json:"foreignProcesses"`
+	Error            *apperr.Error            `json:"error,omitempty"`
 }
 
 // LogsPayload carries buffered log records (spec §47).
@@ -48,6 +53,22 @@ func (a *RuntimeAPI) StopRuntime() RuntimePayload {
 		return a.status(err)
 	}
 	return a.status(fail("RuntimeAPI.StopRuntime", a.app.runtime.Stop(a.app.callCtx())))
+}
+
+// StopForeignProcesses stops the sing-box processes this application did not
+// start (ADR 012). A process that was launched by hand has no record the
+// privileged helper would accept, so it is reported rather than stopped.
+func (a *RuntimeAPI) StopForeignProcesses() RuntimePayload {
+	const op = "RuntimeAPI.StopForeignProcesses"
+	if err := a.app.guard(op); err != nil {
+		return a.status(err)
+	}
+	stopped, err := a.app.runtime.StopForeign(a.app.callCtx())
+	if err != nil {
+		return a.status(fail(op, err))
+	}
+	a.app.logger.Info("stopped sing-box processes the application did not own", "count", stopped)
+	return a.status(nil)
 }
 
 // RestartRuntime restarts the managed process; a profile id is only needed when
@@ -87,9 +108,10 @@ func (a *RuntimeAPI) TailLogs(lines int) LogsPayload {
 // a failure.
 func (a *RuntimeAPI) status(callErr *apperr.Error) RuntimePayload {
 	out := RuntimePayload{
-		Status:       a.app.runtime.Status(),
-		ShuttingDown: a.app.ShuttingDown(),
-		Error:        callErr,
+		Status:           a.app.runtime.Status(),
+		ShuttingDown:     a.app.ShuttingDown(),
+		ForeignProcesses: a.app.runtime.ForeignProcesses(),
+		Error:            callErr,
 	}
 	out.TrafficAvailable = a.app.traffic.Running()
 	ctx := a.app.callCtx()

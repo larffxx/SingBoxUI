@@ -49,6 +49,7 @@ import {
 } from '@/shared/ui'
 
 import { useClashEndpointQuery } from './clash'
+import { ForeignRuntimeNotice } from './ForeignRuntimeNotice'
 import { LogViewer } from './LogViewer'
 import {
   exitCodeLabel,
@@ -154,6 +155,8 @@ export function RuntimeRoute(): React.ReactElement {
           {status.lastError}
         </Alert>
       ) : null}
+
+      <ForeignRuntimeNotice />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

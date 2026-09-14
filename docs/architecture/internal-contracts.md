@@ -165,6 +165,10 @@ one validated sing-box process — through the OS elevation mechanism, and:
 * `Process.Logs()` for an elevated launch tails `LogPath`; `Wait()` waits on the child of the helper
   through `StatusPath`;
 * `Terminate()`/`Kill()` signal the PID from `PIDPath` after verifying it is the same process;
+* `Runner.Stop(ctx, pidPath, force)` ends a process the application did not start — a core that
+  outlived the window (ADR 012). It signals the recorded process directly when this user is allowed
+  to, and escalates to the helper's `stop` operation when the kernel answers `ErrNotPermitted`; the
+  request names a *record*, never a pid, so the boundary stays "one recorded sing-box";
 * user cancellation of the elevation prompt maps to `privilege.ErrCancelled` →
   `apperr.CodePrivilegeDenied`.
 

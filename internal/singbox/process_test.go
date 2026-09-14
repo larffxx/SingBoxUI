@@ -28,7 +28,9 @@ func TestForeignReportsTheFixtureProcess(t *testing.T) {
 	}
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "pid")
-	process := startFake(t, "-scenario", faketest.ScenarioRunForeign, "-pid-file", pidFile)
+	// The trailing "run" makes the fixture look like the process the adapter is
+	// looking for: a sing-box that is running a configuration.
+	process := startFake(t, "-scenario", faketest.ScenarioRunForeign, "-pid-file", pidFile, "run")
 	waitFor(t, 5*time.Second, "the fixture's PID file", func() bool { return fileExists(pidFile) })
 
 	pids, err := Foreign(context.Background())
@@ -83,6 +85,46 @@ func TestForeignIgnoresProcessesWithAnotherName(t *testing.T) {
 	}
 	if len(pids) != 0 {
 		t.Errorf("foreignPIDsPgrep() = %v, want no processes", pids)
+	}
+}
+
+func TestForeignIgnoresAProcessThatIsNotRunningAConfiguration(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("tasklist cannot show arguments, so Windows reports every sing-box process")
+	}
+	// `sing-box check` — or any other subcommand — holds neither the TUN device
+	// nor the ports, so it must not make the application refuse to start.
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "pid")
+	process := startFake(t, "-scenario", faketest.ScenarioRunForeign, "-pid-file", pidFile, "check")
+	waitFor(t, 5*time.Second, "the fixture's PID file", func() bool { return fileExists(pidFile) })
+
+	pids, err := Foreign(context.Background())
+	if err != nil {
+		t.Fatalf("Foreign() failed: %v", err)
+	}
+	if containsInt(pids, process.cmd.Process.Pid) {
+		t.Errorf("Foreign() = %v, want the check-only fixture %d to be left out", pids, process.cmd.Process.Pid)
+	}
+}
+
+func TestHasRunArgument(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields []string
+		want   bool
+	}{
+		{name: "the managed launch", fields: []string{"/data/bin/sing-box", "run", "-c", "/data/config/active.json"}, want: true},
+		{name: "a check", fields: []string{"/data/bin/sing-box", "check", "-c", "/data/config/active.json"}, want: false},
+		{name: "a path that contains the word", fields: []string{"/data/bin/sing-box", "check", "-c", "/data/run.json"}, want: false},
+		{name: "no arguments at all", fields: []string{"/data/bin/sing-box"}, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := hasRunArgument(test.fields); got != test.want {
+				t.Errorf("hasRunArgument(%v) = %v, want %v", test.fields, got, test.want)
+			}
+		})
 	}
 }
 

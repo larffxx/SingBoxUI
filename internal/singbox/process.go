@@ -15,16 +15,22 @@ import (
 	"github.com/larffxx/singboxui/internal/domain/apperr"
 )
 
-// Foreign reports the PIDs of sing-box processes that are running but were not
-// started by this application — a manual CLI run, or a child left behind by the
-// legacy Java UI.
+// Foreign reports the PIDs of sing-box processes that are running a
+// configuration but were not started by this application — a manual CLI run, or
+// a child left behind by an earlier session of the application itself (ADR 012).
 //
-// It deliberately reports every sing-box process it can see, including any this
-// application started: only the runtime supervisor knows its own PIDs, and a
-// port package must not keep that kind of process bookkeeping. The supervisor
-// subtracts what it owns and uses the remainder to warn the user (spec §26,
-// §27) instead of letting two sing-box instances fight over TUN devices,
-// ports and the routing table.
+// A `sing-box check` shares the executable name but neither the TUN device nor
+// the ports, so processes that were not launched to run a configuration are left
+// out: refusing to start because a check is running would be wrong. Windows is
+// the exception — tasklist cannot show arguments, so every sing-box process is
+// reported there.
+//
+// It deliberately reports every running sing-box process it can see, including
+// any this application started: only the runtime supervisor knows its own PIDs,
+// and a port package must not keep that kind of process bookkeeping. The
+// supervisor subtracts what it owns and uses the remainder to warn the user
+// (spec §26, §27) instead of letting two sing-box instances fight over TUN
+// devices, ports and the routing table.
 func Foreign(ctx context.Context) ([]int, error) {
 	const op = "singbox.Foreign"
 	name := strings.TrimSuffix(ExecutableName(runtime.GOOS), ".exe")
@@ -62,7 +68,8 @@ func Foreign(ctx context.Context) ([]int, error) {
 	return out, nil
 }
 
-// foreignPIDsPgrep asks pgrep for processes whose executable is named name.
+// foreignPIDsPgrep asks pgrep for processes whose executable is named name, then
+// keeps the ones that are running a configuration.
 func foreignPIDsPgrep(ctx context.Context, name string) ([]int, error) {
 	cmd := exec.CommandContext(ctx, "pgrep", "-x", name)
 	var stdout, stderr strings.Builder
@@ -83,7 +90,43 @@ func foreignPIDsPgrep(ctx context.Context, name string) ([]int, error) {
 		}
 		return nil, err
 	}
-	return parsePIDLines(stdout.String()), nil
+	candidates := parsePIDLines(stdout.String())
+	out := make([]int, 0, len(candidates))
+	for _, pid := range candidates {
+		if runningConfiguration(ctx, pid) {
+			out = append(out, pid)
+		}
+	}
+	return out, nil
+}
+
+// runningConfiguration reports whether a process was launched to run a
+// configuration, which is what the command line says: `sing-box run -c …`.
+//
+// A command line that cannot be read is treated as running a configuration: a
+// process the application cannot inspect is one it must not assume to be
+// harmless, and reporting it too much only produces a warning.
+func runningConfiguration(ctx context.Context, pid int) bool {
+	cmd := exec.CommandContext(ctx, "ps", "-o", "command=", "-p", strconv.Itoa(pid))
+	var stdout strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stdin = nil
+	if err := cmd.Run(); err != nil {
+		return true
+	}
+	return hasRunArgument(strings.Fields(stdout.String()))
+}
+
+// hasRunArgument reports whether an argument vector contains the `run`
+// subcommand. Arguments are compared whole, so a path or a flag value that
+// merely contains the word cannot match.
+func hasRunArgument(fields []string) bool {
+	for _, field := range fields {
+		if field == "run" {
+			return true
+		}
+	}
+	return false
 }
 
 // foreignPIDsWindows asks tasklist for processes whose image is name.

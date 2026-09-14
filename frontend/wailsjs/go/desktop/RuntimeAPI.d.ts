@@ -13,6 +13,8 @@ export function RestartRuntime(arg1:string):Promise<desktop.RuntimePayload>;
 
 export function StartRuntime(arg1:string):Promise<desktop.RuntimePayload>;
 
+export function StopForeignProcesses():Promise<desktop.RuntimePayload>;
+
 export function StopRuntime():Promise<desktop.RuntimePayload>;
 
 export function TailLogs(arg1:number):Promise<desktop.LogsPayload>;

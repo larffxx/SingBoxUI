@@ -78,6 +78,16 @@ type Runner interface {
 	// Start launches the requested process. Implementations must not block until
 	// the child exits, so the caller can confirm health while it runs.
 	Start(ctx context.Context, req Request) (Process, error)
+	// Stop terminates the process recorded in the pid file, escalating only when
+	// this process is not allowed to signal it (ADR 012).
+	//
+	// It exists because a sing-box can outlive the application that launched it:
+	// nothing holds a handle to such a process, and one that runs as
+	// administrator cannot be signalled by the unprivileged application at all,
+	// so the same narrow helper stops it. The recorded start time is verified
+	// before any signal is sent, and stopping a process that has already exited
+	// is a successful no-op.
+	Stop(ctx context.Context, pidPath string, force bool) error
 	// Supported reports whether privileged launches are possible on this system,
 	// and why not when they are not.
 	Supported() (bool, string)

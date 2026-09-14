@@ -134,6 +134,11 @@ type Deps struct {
 	// built-in default.
 	CheckTimeout time.Duration
 	Now          func() time.Time
+	// Foreign reports the sing-box processes running on this machine that this
+	// application did not start (ADR 012). A nil value uses singbox.Foreign,
+	// which searches the machine; a test injects one so the suite never depends
+	// on whether the developer happens to be running a core.
+	Foreign func(ctx context.Context) ([]int, error)
 }
 
 // Supervisor is the single owner of the managed process.
@@ -187,6 +192,9 @@ func New(parent context.Context, deps Deps) *Supervisor {
 	}
 	if deps.Now == nil {
 		deps.Now = func() time.Time { return time.Now().UTC() }
+	}
+	if deps.Foreign == nil {
+		deps.Foreign = singbox.Foreign
 	}
 	ctx, cancel := context.WithCancel(parent)
 	s := &Supervisor{
@@ -292,6 +300,13 @@ func (s *Supervisor) startLocked(ctx context.Context, profileID string) error {
 	}
 	if profileID == "" {
 		return apperr.New(apperr.CodeInvalidArgument, op, "a profile must be selected")
+	}
+	// A core this instance does not own holds the TUN device, the Clash API port
+	// and the routing table: launching a second one produces a bind error from
+	// inside the child and a log tail written by the surviving process, so the
+	// failure explains nothing (ADR 012).
+	if err := s.refuseForeignLocked(ctx, op); err != nil {
+		return s.failLocked(op, err)
 	}
 
 	p, err := s.deps.Store.GetProfile(ctx, profileID)

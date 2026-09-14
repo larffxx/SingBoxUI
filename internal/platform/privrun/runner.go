@@ -202,6 +202,22 @@ func (r *Runner) elevationError(err error) error {
 	}
 }
 
+// Stop stops the process recorded in pidPath (ADR 012).
+//
+// A process this user owns is signalled directly, so no elevation prompt appears
+// for it; a process that runs as administrator answers ErrNotPermitted, and only
+// then is the helper asked to do it — an unprivileged application cannot signal
+// one that runs as administrator, and the narrow helper is the only way
+// (internal-contracts.md §3).
+func (r *Runner) Stop(ctx context.Context, pidPath string, force bool) error {
+	if _, err := childrunStopVerified(ctx, pidPath, force); err == nil {
+		return nil
+	} else if !childrunNotPermitted(err) {
+		return err
+	}
+	return r.stopProcess(ctx, pidPath, force)
+}
+
 // stopProcess stops a process through the helper. An unprivileged application
 // cannot signal a process that runs as administrator, so another elevated
 // invocation of the same narrow helper is the only way (internal-contracts.md

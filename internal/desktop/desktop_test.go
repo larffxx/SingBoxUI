@@ -29,6 +29,7 @@ import (
 	domsettings "github.com/larffxx/singboxui/internal/domain/settings"
 	"github.com/larffxx/singboxui/internal/events"
 	"github.com/larffxx/singboxui/internal/platform"
+	"github.com/larffxx/singboxui/internal/platform/childrun"
 	"github.com/larffxx/singboxui/internal/privilege"
 	"github.com/larffxx/singboxui/internal/singbox/faketest"
 	"github.com/larffxx/singboxui/internal/storage/sqlite"
@@ -182,6 +183,10 @@ type fakePrivilege struct {
 
 	mu     sync.Mutex
 	starts []privilege.Request
+	stops  []string
+	// stopErr is what Stop answers with; nil means it stops the recorded process
+	// the way the privileged helper does.
+	stopErr error
 }
 
 func (p *fakePrivilege) Start(ctx context.Context, req privilege.Request) (privilege.Process, error) {
@@ -189,6 +194,42 @@ func (p *fakePrivilege) Start(ctx context.Context, req privilege.Request) (privi
 	p.starts = append(p.starts, req)
 	p.mu.Unlock()
 	return nil, privilege.ErrUnsupported
+}
+
+// Stop records the pid file, then stops the process it describes the way the
+// privileged helper does (ADR 012).
+func (p *fakePrivilege) Stop(_ context.Context, pidPath string, _ bool) error {
+	p.mu.Lock()
+	p.stops = append(p.stops, pidPath)
+	stopErr := p.stopErr
+	p.mu.Unlock()
+	if stopErr != nil {
+		return stopErr
+	}
+	record, err := childrun.ReadPIDFile(pidPath)
+	if err != nil {
+		return err
+	}
+	if err := childrun.Kill(record.PID); err != nil && !errors.Is(err, childrun.ErrProcessGone) {
+		return err
+	}
+	// The real helper waits for the process to disappear before it reports
+	// success (childrun.StopVerified), so the payload the UI renders next is
+	// already free of it.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !childrun.Alive(record.PID) {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return nil
+}
+
+func (p *fakePrivilege) stoppedPaths() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.stops...)
 }
 
 func (p *fakePrivilege) Supported() (bool, string) { return p.supported, p.reason }
@@ -332,6 +373,10 @@ func newHarness(t *testing.T, options ...func(*Deps)) *harness {
 			driver.configure(opts)
 			return driver, nil
 		},
+		// The machine is never searched for sing-box processes in a test: the
+		// developer may be running a core, and starting a profile must not
+		// depend on it (ADR 012).
+		Foreign: func(context.Context) ([]int, error) { return nil, nil },
 	}
 	// A test that needs a seam the real process supplies at runtime — the native
 	// file picker, for instance — overrides it before the graph is built.

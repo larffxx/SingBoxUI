@@ -45,6 +45,11 @@ type Deps struct {
 	Emitter *Emitter
 	// ExecPath is this application's own executable, used for autostart.
 	ExecPath string
+	// Foreign reports the sing-box processes running on this machine that this
+	// application did not start (ADR 012). A nil value searches the machine; a
+	// test injects one so starting a profile never depends on the core the
+	// developer happens to be running.
+	Foreign func(ctx context.Context) ([]int, error)
 	// Version is the application version reported to the UI.
 	Version string
 	GOOS    string
@@ -296,6 +301,7 @@ func New(deps Deps) *App {
 		// The pre-start check must not hold the start button for long: the same
 		// binary parses the file in a few tens of milliseconds.
 		CheckTimeout: 20 * time.Second,
+		Foreign:      deps.Foreign,
 	})
 	link.wire(a.config, a.runtime)
 

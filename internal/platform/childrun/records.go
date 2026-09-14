@@ -47,6 +47,27 @@ type PIDFile struct {
 // Valid reports whether the record can be used to identify a process.
 func (p PIDFile) Valid() bool { return p.PID > 0 && p.StartTime > 0 }
 
+// Matches reports whether the process running under this record's pid is the one
+// the record describes.
+//
+// A pid is recycled by the kernel long before a run directory is cleaned up, so
+// "the pid exists" is not the same question as "our process is running"
+// (ADR 012): the start time must match as well, and a process that has exited but
+// whose parent has not reaped it yet is already gone. This is the identity check
+// a stop performs before it signals anything, in the one place both the stop and
+// the reader of a record can use it.
+func (p PIDFile) Matches() bool {
+	if !p.Valid() || !Alive(p.PID) {
+		return false
+	}
+	start, err := StartTimeNano(p.PID)
+	if err != nil {
+		// The process is gone, so nothing can match it.
+		return false
+	}
+	return sameIdentity(start, p.StartTime)
+}
+
 // WritePIDFile writes the record atomically, so a concurrently starting reader
 // never observes a partial file.
 func WritePIDFile(path string, p PIDFile) error {

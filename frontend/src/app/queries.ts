@@ -239,6 +239,26 @@ export function useStopRuntimeMutation(): UseMutationResult<desktop.RuntimePaylo
   })
 }
 
+/**
+ * Stops a sing-box this application did not start (ADR 012): a core that
+ * outlived the window holds the TUN device and the ports, so nothing can be
+ * started before it is gone.
+ */
+export function useStopForeignProcessesMutation(): UseMutationResult<
+  desktop.RuntimePayload,
+  unknown,
+  void
+> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => runtimeApi.stopForeignProcesses(),
+    onSuccess: (payload) => {
+      client.setQueryData(keys.runtime.status(), payload)
+      void client.invalidateQueries({ queryKey: keys.traffic.all })
+    },
+  })
+}
+
 export function useRestartRuntimeMutation(): UseMutationResult<
   desktop.RuntimePayload,
   unknown,
