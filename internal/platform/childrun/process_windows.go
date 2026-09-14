@@ -85,7 +85,15 @@ func killOwn(pid int) error { return Kill(pid) }
 
 // taskkill stops pid and its children. Arguments are passed as an array, never
 // as a shell command line (spec §24).
+//
+// Whether this process is allowed to end the target at all is asked first, and
+// asked again when taskkill fails: the utility prints a localised message, and
+// the answer that matters to the caller — "not permitted" versus "no such
+// process" — comes from the kernel, not from that text.
 func taskkill(pid int, force bool) error {
+	if err := mayTerminate(pid); err != nil {
+		return err
+	}
 	args := []string{"/PID", strconv.Itoa(pid), "/T"}
 	if force {
 		args = append(args, "/F")
@@ -93,12 +101,52 @@ func taskkill(pid int, force bool) error {
 	out, err := exec.Command("taskkill", args...).CombinedOutput()
 	if err != nil {
 		message := strings.TrimSpace(string(out))
-		if strings.Contains(strings.ToLower(message), "not found") || strings.Contains(strings.ToLower(message), "не найден") {
-			return fmt.Errorf("childrun: taskkill %d: %w", pid, ErrProcessGone)
+		if reason := mayTerminate(pid); reason != nil {
+			return fmt.Errorf("childrun: taskkill %d (%s): %w: %s", pid, strings.Join(args, " "), reason, message)
 		}
 		return fmt.Errorf("childrun: taskkill %d (%s): %w: %s", pid, strings.Join(args, " "), err, message)
 	}
 	return nil
+}
+
+// mayTerminate reports whether this process may end pid, before anything is
+// attempted.
+//
+// It answers ErrNotPermitted for a process the user may not touch — which on
+// Windows is every process that runs at a higher integrity level, including this
+// application's own sing-box, started as administrator through the privileged
+// helper. That answer is what makes `privilege.Runner.Stop` escalate to the
+// helper instead of reporting a failure (ADR 012): without it the escalation
+// never happened on Windows and an elevated core could not be stopped from the
+// application at all.
+//
+// A pid that no longer exists answers ErrProcessGone, so a process that exited
+// between the identity check and the stop is never mistaken for a permission
+// problem, and a pid that was recycled is caught by the identity check itself.
+func mayTerminate(pid int) error {
+	if pid <= 0 {
+		return fmt.Errorf("childrun: invalid pid %d", pid)
+	}
+	handle, err := openForTermination(pid)
+	if err == nil {
+		windows.CloseHandle(handle)
+		return nil
+	}
+	switch {
+	case errors.Is(err, windows.ERROR_ACCESS_DENIED):
+		return fmt.Errorf("childrun: terminate %d: %w", pid, ErrNotPermitted)
+	case errors.Is(err, windows.ERROR_INVALID_PARAMETER), errors.Is(err, windows.ERROR_NOT_FOUND):
+		return fmt.Errorf("childrun: terminate %d: %w", pid, ErrProcessGone)
+	default:
+		return fmt.Errorf("childrun: open %d for termination: %w", pid, err)
+	}
+}
+
+// openForTermination asks the kernel for the right to end a process. It is a
+// variable so that the suite can exercise the refusal the kernel produces for an
+// elevated process, which a test running as the current user cannot create.
+var openForTermination = func(pid int) (windows.Handle, error) {
+	return windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid))
 }
 
 // configureChild detaches the child from the UI's console and gives it its own

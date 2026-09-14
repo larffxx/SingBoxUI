@@ -167,8 +167,9 @@ one validated sing-box process — through the OS elevation mechanism, and:
 * `Terminate()`/`Kill()` signal the PID from `PIDPath` after verifying it is the same process;
 * `Runner.Stop(ctx, pidPath, force)` ends a process the application did not start — a core that
   outlived the window (ADR 012). It signals the recorded process directly when this user is allowed
-  to, and escalates to the helper's `stop` operation when the kernel answers `ErrNotPermitted`; the
-  request names a *record*, never a pid, so the boundary stays "one recorded sing-box";
+  to, and escalates to the helper's `stop` operation when the kernel refuses the signal: `EPERM` from
+  `kill(2)` on macOS, `ERROR_ACCESS_DENIED` from `OpenProcess(PROCESS_TERMINATE)` on Windows (ADR 012,
+  amendment). The request names a *record*, never a pid, so the boundary stays "one recorded sing-box";
 * user cancellation of the elevation prompt maps to `privilege.ErrCancelled` →
   `apperr.CodePrivilegeDenied`.
 

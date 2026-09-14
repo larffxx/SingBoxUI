@@ -100,3 +100,30 @@ loudly instead of quietly.
 * Stopping is per record, so a record that was deleted (or that describes a process that already
   exited) leaves a core the application can name but not end. Nothing new is introduced by that; it
   is the state the application was already in before this ADR, minus the explanation.
+
+## Amendment — the refusal is the kernel's answer, on Windows too
+
+The decision above was written where a kernel answers `ErrNotPermitted` — `kill(2)` with `EPERM` on
+macOS. On Windows nothing did. A stop of an elevated core ended in `taskkill`, which prints a localised
+"Access is denied" that was reported as a plain failure, so `privrun.Runner.Stop` never escalated to the
+helper and the runtime screen could not stop a core the application had itself started as administrator
+— which is every TUN launch on that platform, because Windows needs the elevation for the TUN device
+(internal-contracts.md §3). The feature of this ADR was therefore missing exactly where the application
+is used.
+
+`childrun` now asks the kernel before it signals anything: `OpenProcess(PROCESS_TERMINATE)` is the
+question, `ERROR_ACCESS_DENIED` is `ErrNotPermitted`, a pid that owns no process is `ErrProcessGone`,
+and the text `taskkill` prints is no longer read for a reason. The order is unchanged — the direct
+attempt stays the fast path for a core this user owns, and the helper is asked only after the refusal.
+Because the answer is now the kernel's, the fast path is used whenever the kernel grants it: measured on
+Windows 11, a core running as administrator and owned by the same user *is* openable for termination
+from the unprivileged application, so a leftover core is stopped without an elevation prompt; the
+escalation covers the processes this user may not touch at all, which the same probe refuses
+(`OpenProcess(PROCESS_TERMINATE)` on a `SYSTEM` process answers `ERROR_ACCESS_DENIED`).
+
+Verified on Windows: a start-and-exit pid answers `ErrProcessGone`; the production helper binary, built
+as it ships, ends a recorded process and reports it (`singboxui-priv: stopped pid …`); the refusal is
+injected through the same variable the implementation uses (`openForTermination`) and asserted to reach
+the caller untouched, which is the contract the escalation acts on; and the process a refusal describes
+is left running. What the suite cannot create for itself is an elevation prompt, so the escalated stop
+itself is covered by the helper's own tests and by the machine.

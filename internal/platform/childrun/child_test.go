@@ -296,7 +296,11 @@ func TestStopVerifiedStopsTheRecordedProcess(t *testing.T) {
 	if !result.WasRunning || !result.Stopped {
 		t.Errorf("StopVerified = %+v, want a stopped process that was running", result)
 	}
-	if result.Forced {
+	if runtime.GOOS != "windows" && result.Forced {
+		// Windows has no signal to deliver to a windowless child, so its
+		// graceful attempt is already a forced stop: whether the process
+		// cooperated cannot be told from the result there, and "the process is
+		// gone" is the whole of the contract (process_windows.go, Terminate).
 		t.Error("a process answering the termination request was killed")
 	}
 	if _, err := child.Wait(); err != nil {
