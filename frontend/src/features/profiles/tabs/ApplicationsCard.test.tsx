@@ -207,6 +207,41 @@ describe('applications card', () => {
     )
   })
 
+  it('switches one application without moving the others of the same rule', async () => {
+    // The regression the user reported: one rule held several programs, and
+    // switching one of them rewrote the outbound of that whole rule, so every
+    // program in it changed direction.
+    const user = userEvent.setup({ delay: null })
+    const onChange = await renderCard(
+      baseDocument([
+        { action: 'route', outbound: 'proxy-vless', process_path_regex: [TELEGRAM, DISCORD] },
+      ]),
+    )
+
+    await user.click(
+      within(screen.getByRole('group', { name: 'Discord' })).getByRole('button', {
+        name: 'Напрямую',
+      }),
+    )
+
+    expect(rulesOf(lastDocument(onChange))).toEqual([
+      { action: 'route', outbound: 'proxy-vless', process_path_regex: [TELEGRAM] },
+      { action: 'route', outbound: 'direct', process_path_regex: [DISCORD] },
+    ])
+
+    // The rows read back what the document now says: only Discord is direct.
+    const telegram = screen.getByRole('group', { name: 'Telegram' })
+    const discord = screen.getByRole('group', { name: 'Discord' })
+    expect(within(telegram).getByRole('button', { name: 'Через VPN' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(within(discord).getByRole('button', { name: 'Напрямую' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
   it('explains a platform that has no catalog to offer', async () => {
     mocks.list.mockResolvedValue({
       apps: {

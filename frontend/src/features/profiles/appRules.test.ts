@@ -138,6 +138,113 @@ describe('setAppRoute', () => {
     ])
   })
 
+  it('switches only the application that was asked for, not its neighbours', () => {
+    // The shape the user's own configuration has: one rule holds four programs
+    // under one outbound. Switching one of them must not move the others — that
+    // was the bug the card shipped with.
+    const initial = rules({
+      action: 'route',
+      outbound: 'proxy-vless',
+      process_name: ['Discord.exe', 'Telegram.exe', 'chrome.exe', 'dota2.exe'],
+    })
+    const discord: AppCondition = { key: 'process_name', value: 'Discord.exe' }
+
+    const next = setAppRoute(initial, discord, 'direct', 'proxy-vless')
+
+    expect(next).toEqual([
+      {
+        action: 'route',
+        outbound: 'proxy-vless',
+        process_name: ['Telegram.exe', 'chrome.exe', 'dota2.exe'],
+      },
+      { action: 'route', outbound: 'direct', process_name: ['Discord.exe'] },
+    ])
+    // What the card reads back: one program direct, the rest still through the tunnel.
+    expect(appRuleTarget(next, discord)).toBe('direct')
+    for (const value of ['Telegram.exe', 'chrome.exe', 'dota2.exe']) {
+      expect(appRuleTarget(next, { key: 'process_name', value })).toBe('proxy')
+    }
+  })
+
+  it('leaves the rule alone when the application already has the direction asked for', () => {
+    const initial = rules({
+      action: 'route',
+      outbound: 'proxy-vless',
+      process_name: ['Discord.exe', 'chrome.exe'],
+    })
+    const discord: AppCondition = { key: 'process_name', value: 'Discord.exe' }
+
+    expect(setAppRoute(initial, discord, 'proxy', 'proxy-vless')).toEqual(initial)
+
+    // Even when the rule routes through another proxy tag: the card's button says
+    // "через VPN", and the program already is.
+    const explicit = rules({
+      action: 'route',
+      outbound: 'hy2-node',
+      process_name: ['Discord.exe', 'chrome.exe'],
+    })
+    expect(setAppRoute(explicit, discord, 'proxy', 'proxy-vless')).toEqual(explicit)
+  })
+
+  it('switches back without leaving the application in two rules', () => {
+    const initial = rules({
+      action: 'route',
+      outbound: 'proxy-vless',
+      process_name: ['Discord.exe', 'chrome.exe'],
+    })
+    const discord: AppCondition = { key: 'process_name', value: 'Discord.exe' }
+
+    const direct = setAppRoute(initial, discord, 'direct', 'proxy-vless')
+    const back = setAppRoute(direct, discord, 'proxy', 'proxy-vless')
+
+    expect(back).toEqual([
+      { action: 'route', outbound: 'proxy-vless', process_name: ['chrome.exe'] },
+      { action: 'route', outbound: 'proxy-vless', process_name: ['Discord.exe'] },
+    ])
+    expect(appRuleTarget(back, discord)).toBe('proxy')
+    expect(appRuleTarget(back, { key: 'process_name', value: 'chrome.exe' })).toBe('proxy')
+  })
+
+  it('takes the application out of every routing rule that selects it', () => {
+    const initial = rules(
+      { action: 'route', outbound: 'proxy-vless', process_name: ['Discord.exe'] },
+      { action: 'route', outbound: 'direct', process_name: ['Discord.exe', 'chrome.exe'] },
+    )
+
+    const next = setAppRoute(
+      initial,
+      { key: 'process_name', value: 'Discord.exe' },
+      'direct',
+      'proxy-vless',
+    )
+
+    // The exhausted rule is gone, the one that kept another program stays, and the
+    // program now has a rule of its own.
+    expect(next).toEqual([
+      { action: 'route', outbound: 'direct', process_name: ['chrome.exe'] },
+      { action: 'route', outbound: 'direct', process_name: ['Discord.exe'] },
+    ])
+  })
+
+  it('does not touch a rule that is not a routing decision', () => {
+    const initial = rules(
+      { action: 'reject', process_name: ['Discord.exe'] },
+      { action: 'route', outbound: 'direct', process_name: ['Discord.exe'] },
+    )
+
+    const next = setAppRoute(
+      initial,
+      { key: 'process_name', value: 'Discord.exe' },
+      'proxy',
+      'proxy-vless',
+    )
+
+    expect(next).toEqual([
+      { action: 'reject', process_name: ['Discord.exe'] },
+      { action: 'route', outbound: 'proxy-vless', process_name: ['Discord.exe'] },
+    ])
+  })
+
   it('keeps the other conditions of a rule the user wrote by hand', () => {
     const initial = rules({
       action: 'route',

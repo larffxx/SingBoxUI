@@ -60,16 +60,21 @@ export function appRuleTarget(rules: JsonObject[], condition: AppCondition): App
 }
 
 /**
- * setAppRoute rewrites the list for one application.
+ * setAppRoute rewrites the list for one application, and for that application
+ * only.
  *
- * A new rule is appended: rules are evaluated in order, and the screen must not
+ * A rule may hold several programs under one outbound — that is what a
+ * hand-written rule looks like (`process_name` with four names) and what the
+ * screen produces when the same direction is asked for twice. Switching one
+ * program therefore never rewrites such a rule: the program leaves every routing
+ * rule that selects it (those rules keep their other programs and conditions, and
+ * a rule whose conditions are exhausted is removed with it) and gets a rule of its
+ * own, appended, because rules are evaluated in order and the screen must not
  * silently move a condition above the rules the user wrote by hand. The ↑/↓
  * buttons of the rule list are how a rule is given priority.
  *
- * A rule the user extended by hand keeps its other conditions when the
- * application is cleared; a rule that was created for the application alone is
- * removed with it — an action and an outbound without a condition would route
- * the whole machine, which is never what clearing one application means.
+ * Asking for the direction a program already has changes nothing: rewriting the
+ * rule would move every other program that shares it.
  */
 export function setAppRoute(
   rules: JsonObject[],
@@ -80,34 +85,56 @@ export function setAppRoute(
   const index = appRuleIndex(rules, condition)
   if (target === 'off') {
     if (index < 0) return rules
-    const existing = rules[index]
-    if (!existing) return rules
-    const remaining = getStringList(existing, condition.key).filter(
+    return removeAppValue(rules, condition)
+  }
+  if (index >= 0 && appRuleTarget(rules, condition) === target) {
+    return rules
+  }
+  const outbound = target === 'direct' ? 'direct' : proxyOutbound
+  const cleaned = index < 0 ? rules : removeAppValue(rules, condition)
+  return [...cleaned, { action: 'route', outbound, [condition.key]: [condition.value] }]
+}
+
+/**
+ * removeAppValue takes one program out of every rule that routes it.
+ *
+ * Only routing decisions are touched: a `reject` or `sniff` rule that happens to
+ * name the program is not a direction the card can change, so its condition stays
+ * where the user put it. A rule that keeps other conditions (or other programs)
+ * stays in the list with them; one that is left with an action and an outbound and
+ * nothing else is removed, because it would route the whole machine.
+ */
+function removeAppValue(rules: JsonObject[], condition: AppCondition): JsonObject[] {
+  const out: JsonObject[] = []
+  for (const rule of rules) {
+    if (!routesProgram(rule, condition)) {
+      out.push(rule)
+      continue
+    }
+    const remaining = getStringList(rule, condition.key).filter(
       (value) => value !== condition.value,
     )
-    const next = { ...existing }
+    const next = { ...rule }
     if (remaining.length === 0) {
       delete next[condition.key]
     } else {
       next[condition.key] = remaining
     }
     const keepsConditions = Object.keys(next).some((key) => !CONDITIONLESS_KEYS.has(key))
-    const updated = [...rules]
-    if (keepsConditions) {
-      updated[index] = next
-    } else {
-      updated.splice(index, 1)
-    }
-    return updated
+    if (keepsConditions) out.push(next)
   }
+  return out
+}
 
-  const outbound = target === 'direct' ? 'direct' : proxyOutbound
-  if (index < 0) {
-    return [...rules, { action: 'route', outbound, [condition.key]: [condition.value] }]
-  }
-  const updated = [...rules]
-  updated[index] = { ...rules[index], action: 'route', outbound }
-  return updated
+/**
+ * routesProgram reports whether a rule is a routing decision that selects this
+ * program. An empty action means `route` in sing-box, which is why the rule the
+ * card itself writes carries the field explicitly.
+ */
+function routesProgram(rule: JsonObject, condition: AppCondition): boolean {
+  if (!getStringList(rule, condition.key).includes(condition.value)) return false
+  const action = getString(rule, 'action')
+  return action === '' || action === 'route'
 }
 
 /**
