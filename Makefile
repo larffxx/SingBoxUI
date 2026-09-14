@@ -38,6 +38,17 @@ LDFLAGS    := -s -w \
 	-X main.commit=$(GIT_COMMIT) \
 	-X main.buildDate=$(BUILD_DATE)
 
+# The privileged helper is linked as a GUI-subsystem binary on Windows: a
+# console-subsystem helper shows a console window on the user's desktop for as
+# long as the TUN runtime lives, and nothing reads its stdout (the application
+# follows the pid, status and log files). -H=windowsgui is a windows-only linker
+# value, so it is added only for that target; a developer who wants the helper's
+# own output builds it by hand with `go build ./cmd/singboxui-priv`.
+PRIV_LDFLAGS := $(LDFLAGS)
+ifeq ($(shell go env GOOS),windows)
+PRIV_LDFLAGS += -H=windowsgui
+endif
+
 .DEFAULT_GOAL := help
 
 .PHONY: help
@@ -137,7 +148,7 @@ build: ## Build the desktop app (wails build + privileged helper) and its bundle
 
 .PHONY: build-priv
 build-priv: ## Build the privileged helper binary
-	$(GO) build -trimpath -ldflags "$(LDFLAGS)" \
+	$(GO) build -trimpath -ldflags "$(PRIV_LDFLAGS)" \
 		-o $(BIN_DIR)/$(PRIV_NAME) ./cmd/singboxui-priv
 
 ## Verification ---------------------------------------------------------------

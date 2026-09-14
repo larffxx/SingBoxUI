@@ -84,6 +84,18 @@ $buildArgs = @('build', '-platform', "windows/$Arch", '-clean', '-ldflags', $ldf
 # the installer itself is rebuilt below, after the helper exists and is signed.
 if (-not $NoInstaller) { $buildArgs += '-nsis' }
 
+# Wails writes project.nsi once and never overwrites it again, so the copy a
+# previous run of this script patched (the helper File directive) survives here
+# while -clean has just deleted the helper it refers to: the first installer
+# pass would then abort with "no files found" and a second local run could never
+# succeed. Start every run from Wails' own template, which is what a fresh
+# checkout in CI does, so the patch below is applied exactly once per run.
+$nsiDir = Join-Path $root 'build/windows/installer'
+if ((Test-Path $nsiDir) -and -not $NoInstaller) {
+    Write-Host "==> resetting the generated installer directory"
+    Remove-Item $nsiDir -Recurse -Force
+}
+
 & wails @buildArgs
 if ($LASTEXITCODE -ne 0) { throw "wails build failed with exit code $LASTEXITCODE" }
 
@@ -97,7 +109,16 @@ $env:CGO_ENABLED = '0'
 # left the arm64 package with an amd64 helper.
 $env:GOOS = 'windows'
 $env:GOARCH = $Arch
-& go build -trimpath -ldflags $ldflags -o (Join-Path $binDir "$privName.exe") ./cmd/singboxui-priv
+# -H=windowsgui: the helper is linked as a GUI-subsystem binary, because a
+# console-subsystem helper puts a console window on the user's desktop for as
+# long as the TUN runtime lives — the helper supervises sing-box for the whole
+# session, so the window does not close after the elevation prompt. Nothing
+# reads its stdout: the application follows the pid, status and log files
+# (internal-contracts.md §3). A helper with no console can never receive the
+# graceful console event, which is why childrun.Terminate degrades to the forced
+# stop on Windows (internal/platform/childrun/process_windows.go).
+$helperLdflags = "$ldflags -H=windowsgui"
+& go build -trimpath -ldflags $helperLdflags -o (Join-Path $binDir "$privName.exe") ./cmd/singboxui-priv
 if ($LASTEXITCODE -ne 0) { throw "building cmd/singboxui-priv failed with exit code $LASTEXITCODE" }
 
 $helperExe = Join-Path $binDir "$privName.exe"

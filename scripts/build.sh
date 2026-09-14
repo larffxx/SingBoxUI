@@ -90,6 +90,15 @@ done
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# On Windows the helper is linked as a GUI-subsystem binary: a console-subsystem
+# helper keeps a console window on the user's desktop for as long as the TUN
+# runtime lives, and the application never reads its stdout (it follows the pid,
+# status and log files). -H=windowsgui is windows-only, so it is never passed to
+# the darwin link steps; a developer who wants the helper's own output builds it
+# by hand with `go build ./cmd/singboxui-priv`.
+priv_ldflags="$LDFLAGS"
+[ "$host_os" = "windows" ] && priv_ldflags="$LDFLAGS -H=windowsgui"
+
 if [ "$host_os" = "darwin" ] && [ "$universal" = 1 ]; then
   echo "==> building ${PRIV_NAME} (darwin/universal)"
   for arch in amd64 arm64; do
@@ -101,7 +110,7 @@ if [ "$host_os" = "darwin" ] && [ "$universal" = 1 ]; then
   rm -f "${tmp}/${PRIV_NAME}-amd64" "${tmp}/${PRIV_NAME}-arm64"
 else
   echo "==> building ${PRIV_NAME} (${host_os}/${host_arch})"
-  GOOS="$host_os" GOARCH="$host_arch" go build -trimpath -ldflags "$LDFLAGS" \
+  GOOS="$host_os" GOARCH="$host_arch" go build -trimpath -ldflags "$priv_ldflags" \
     -o "${tmp}/${PRIV_NAME}${exe}" ./cmd/singboxui-priv
 fi
 

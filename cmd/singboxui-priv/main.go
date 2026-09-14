@@ -16,6 +16,16 @@
 //	0  the operation was performed
 //	1  the operation was refused or its result is unknown
 //	2  the invocation itself was invalid
+//
+// On Windows the helper is linked as a GUI-subsystem binary (-H=windowsgui, see
+// scripts/package-windows.ps1 and the Makefile): a console-subsystem helper puts
+// a console window on the user's desktop for as long as the supervised TUN
+// runtime lives, because the helper lives exactly as long as its sing-box child.
+// Nothing depends on this program's stdout — the application reads the pid,
+// status and log files — and a helper without a console can never be handed the
+// graceful console event, which is why childrun.Terminate degrades to the forced
+// stop on Windows. A developer who wants the helper's own output builds it by
+// hand: `go build ./cmd/singboxui-priv`.
 package main
 
 import (
