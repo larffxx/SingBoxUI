@@ -123,6 +123,18 @@ func item(t *testing.T, model tray.Model, id string) tray.Item {
 	return tray.Item{}
 }
 
+// enabled reports whether a menu row is enabled, without failing: it is what the
+// predicate of a wait uses, and a render that does not carry the row at all is not
+// the render being waited for.
+func enabled(model tray.Model, id string) bool {
+	for _, row := range model.Items {
+		if row.ID == id {
+			return row.Enabled
+		}
+	}
+	return false
+}
+
 // rememberProfile makes a profile the one the menu bar starts, the way the
 // window's profile screen does (spec §51).
 func rememberProfile(t *testing.T, h *harness, id string) {
@@ -205,7 +217,16 @@ func TestMenuBarFollowsEveryState(t *testing.T) {
 			h.app.tray.refreshed()
 
 			model := h.tray.waitFor(t, "the menu to show "+tc.name, func(model tray.Model) bool {
-				return model.Icon == tc.icon && model.Items[0].Title == tc.status
+				// The enabled rows are part of the case: the menu renders from the
+				// state it reads, and the render that ran before this test set that
+				// state carries the same icon and words whenever the previous state
+				// was "stopped" without a profile — which is exactly the first case
+				// here. Waiting for the whole case is what makes the assertion below
+				// read a render of *this* state (the menu follows events, it does
+				// not poll).
+				return model.Icon == tc.icon && model.Items[0].Title == tc.status &&
+					enabled(model, trayItemStart) == tc.canStart &&
+					enabled(model, trayItemStop) == tc.canStop
 			})
 			if got := model.Items[0].Title; got != tc.status {
 				t.Errorf("status line = %q, want %q", got, tc.status)
