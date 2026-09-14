@@ -72,7 +72,8 @@ export function CreateFromShareDialog({
   // overwrite a choice the user already made.
   const declared = React.useMemo(() => bases.data?.bases ?? [], [bases.data])
   React.useEffect(() => {
-    if (base === '' && declared.length > 0) setBase(declared[0].id)
+    const first = declared[0]
+    if (base === '' && first) setBase(first.id)
   }, [base, declared])
 
   const selectedBase = declared.find((item) => item.id === base)
