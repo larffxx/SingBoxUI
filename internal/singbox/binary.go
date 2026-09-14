@@ -16,6 +16,7 @@ import (
 	"github.com/larffxx/singboxui/internal/domain/settings"
 	"github.com/larffxx/singboxui/internal/logging"
 	"github.com/larffxx/singboxui/internal/platform"
+	"github.com/larffxx/singboxui/internal/platform/console"
 )
 
 // probeTimeout bounds a version probe. It is a package constant rather than a
@@ -59,6 +60,9 @@ func Probe(ctx context.Context, path string) (Version, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, path, "version")
+	// The probe must not flash a console window on Windows; it runs on every start and on
+	// every binary change.
+	console.Windowless(cmd)
 	output := &boundedBuffer{}
 	cmd.Stdout, cmd.Stderr = output, output
 	cmd.Stdin = nil

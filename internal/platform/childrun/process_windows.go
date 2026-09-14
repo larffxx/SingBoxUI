@@ -11,6 +11,8 @@ import (
 	"syscall"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/larffxx/singboxui/internal/platform/console"
 )
 
 // filetimeToUnixEpoch is the number of 100ns FILETIME ticks between the Windows
@@ -98,7 +100,7 @@ func taskkill(pid int, force bool) error {
 	if force {
 		args = append(args, "/F")
 	}
-	out, err := exec.Command("taskkill", args...).CombinedOutput()
+	out, err := taskkillCommand(args...).CombinedOutput()
 	if err != nil {
 		message := strings.TrimSpace(string(out))
 		if reason := mayTerminate(pid); reason != nil {
@@ -107,6 +109,15 @@ func taskkill(pid int, force bool) error {
 		return fmt.Errorf("childrun: taskkill %d (%s): %w: %s", pid, strings.Join(args, " "), err, message)
 	}
 	return nil
+}
+
+// taskkillCommand builds the taskkill invocation the stop uses. The helper itself is a
+// windowless binary, so without the console flags the utility would open a console window on
+// the user's desktop for every stop.
+func taskkillCommand(args ...string) *exec.Cmd {
+	cmd := exec.Command("taskkill", args...)
+	console.Windowless(cmd)
+	return cmd
 }
 
 // treeStopAccess is what ending a process needs on this platform: `taskkill` identifies the

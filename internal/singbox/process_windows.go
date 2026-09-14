@@ -13,6 +13,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/larffxx/singboxui/internal/platform/console"
 )
 
 // foreignPIDs lists the sing-box processes of this machine that are running a
@@ -30,6 +32,8 @@ func foreignPIDs(ctx context.Context) ([]int, error) {
 	name := ExecutableName("windows")
 
 	cmd := exec.CommandContext(ctx, "tasklist", "/FI", "IMAGENAME eq "+name, "/FO", "CSV", "/NH")
+	// tasklist is a console program and this runs on every start attempt.
+	console.Windowless(cmd)
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	cmd.Stdin = nil

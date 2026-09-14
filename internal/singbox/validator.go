@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/larffxx/singboxui/internal/domain/apperr"
+	"github.com/larffxx/singboxui/internal/platform/console"
 )
 
 // CheckResult is the outcome of `sing-box check`.
@@ -58,6 +59,9 @@ func Check(ctx context.Context, binaryPath, configPath string, timeout time.Dura
 	}
 
 	cmd := exec.CommandContext(ctx, binaryPath, "check", "-c", configPath)
+	// Every revision save validates, so this helper would otherwise put a console window on
+	// the desktop each time.
+	console.Windowless(cmd)
 	output := &boundedBuffer{}
 	cmd.Stdout, cmd.Stderr = output, output
 	cmd.Stdin = nil
