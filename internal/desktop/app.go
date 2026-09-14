@@ -402,7 +402,6 @@ func (a *App) OnShutdown(context.Context) {
 	a.mu.Unlock()
 
 	a.logger.Info("singboxui shutting down")
-	a.cancelRoot()
 
 	// The icon leaves with the application; there is no menu bar item to click
 	// once the process that owns it is gone.
@@ -412,6 +411,15 @@ func (a *App) OnShutdown(context.Context) {
 		a.traffic.Stop()
 	}
 
+	// The runtime is stopped before the root context is cancelled, and the order
+	// matters: the stop of a privileged launch travels through the same context
+	// the launch used, and the Windows elevator refuses a request whose context
+	// is already cancelled ("the elevation request was cancelled before it
+	// started"). Cancelling first therefore stopped nothing at all — the
+	// application reported "sing-box stopped" while the privileged helper, the
+	// sing-box process and its TUN device kept running (spec §26: the VPN never
+	// outlives the application). The supervisor cancels its own derived context
+	// inside Shutdown, which is what the workers below still rely on.
 	if a.runtime != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		if err := a.runtime.Shutdown(ctx); err != nil {
@@ -422,6 +430,8 @@ func (a *App) OnShutdown(context.Context) {
 		}
 		cancel()
 	}
+
+	a.cancelRoot()
 
 	a.emitter.Detach()
 

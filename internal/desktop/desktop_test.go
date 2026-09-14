@@ -1036,8 +1036,12 @@ func TestConfigFacadeWithoutAPrototypeFile(t *testing.T) {
 	cfg := h.app.ConfigAPI
 	// Detection falls back to ~/.singboxui, so point HOME at the temporary
 	// directory as well; the developer's own prototype files stay out of reach.
+	// os.UserHomeDir reads %USERPROFILE% on Windows, so HOME alone left the real
+	// prototype directory in reach and the test failed on any Windows machine
+	// that has one — CI only passed because a fresh runner has none.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Chdir(t.TempDir())
 
 	legacy := cfg.DetectLegacyConfig()

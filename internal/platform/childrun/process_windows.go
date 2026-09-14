@@ -54,14 +54,24 @@ func Alive(pid int) bool {
 
 // Terminate asks the process to stop gracefully.
 //
-// A console child that shares the console receives CTRL_BREAK_EVENT; sing-box
-// has no window to close, so when that is not possible the graceful attempt
-// degrades to taskkill without /F. Callers escalate to Kill when this fails.
+// A console child that shares the console receives CTRL_BREAK_EVENT. sing-box is
+// always started windowless (configureChild) and the application and the helper
+// own no console to share with it, so in this product that event is normally
+// refused — and `taskkill` without /F then refuses a console program outright
+// ("This process can only be terminated forcefully"), which used to make every
+// stop a hard error: the supervisor waited out its whole stop grace, the
+// privileged stop returned exit code 1 and sing-box kept the TUN device.
+//
+// Windows has no signal to deliver in that case, so the graceful attempt
+// degrades to the forced stop. That is the only way "stop" can mean "the process
+// is gone", which is what the callers rely on (spec §26); a caller that needs to
+// know whether the process cooperated reads it from the result of the stop it
+// asked for.
 func Terminate(pid int) error {
 	if err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(pid)); err == nil {
 		return nil
 	}
-	return taskkill(pid, false)
+	return taskkill(pid, true)
 }
 
 // Kill terminates the process tree without waiting for cooperation.

@@ -194,8 +194,14 @@ func (c *Child) collect() {
 		StartedAt: c.startedAt,
 		EndedAt:   time.Now().UTC(),
 	}
-	if err != nil {
-		status.Error = err.Error()
+	// Only a real failure to run the child is an abnormal end. A non-zero exit
+	// code is the program's own outcome and is already in ExitCode: recording
+	// the raw wait error here made every ordinary non-zero exit — a refused
+	// configuration, or a stop — read as a failure of the privileged helper
+	// ("the privileged process ended abnormally: exit status 1") instead of
+	// "sing-box exited with code 1" next to the reason from its log.
+	if c.waitErr != nil {
+		status.Error = c.waitErr.Error()
 	}
 	if werr := WriteStatus(c.cfg.StatusPath, status); werr != nil {
 		if c.waitErr == nil {
