@@ -1,6 +1,8 @@
 package share
 
 import (
+	"strings"
+
 	"github.com/larffxx/singboxui/internal/domain/apperr"
 	"github.com/larffxx/singboxui/internal/logging"
 )
@@ -28,4 +30,19 @@ func invalidErr(operation, message string, details ...string) *apperr.Error {
 	}
 	err := apperr.New(apperr.CodeShareLinkInvalid, operation, logging.RedactString(message))
 	return apperr.WithDetails(err, safe...)
+}
+
+// FailureMessage renders one parse failure for a list the user reads: the message plus the
+// details the parser attached, which is where the source line of a bulk paste lives
+// (`ParseList`). MessageOf alone drops them, and "share link has no scheme" without a line
+// number gives the user of a twenty-line paste nothing to act on.
+//
+// The result stays redacted: an error built by this package never carries a credential.
+func FailureMessage(err error) string {
+	message := apperr.MessageOf(err)
+	details := apperr.DetailsOf(err)
+	if len(details) == 0 {
+		return message
+	}
+	return message + " (" + strings.Join(details, ", ") + ")"
 }

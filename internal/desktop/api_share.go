@@ -53,7 +53,7 @@ func (a *ShareAPI) ParseShareLinks(text string) ShareListPayload {
 		if err == nil {
 			continue
 		}
-		out.Errors = append(out.Errors, apperr.MessageOf(err))
+		out.Errors = append(out.Errors, share.FailureMessage(err))
 	}
 	return out
 }

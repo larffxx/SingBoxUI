@@ -14,7 +14,7 @@ Legend: **KEEP** (same feature, new implementation) · **IMPROVE** (feature kept
 | 7 | Raw JSON editing | `<textarea>` + load/validate/save | `frontend/features/raw-editor` (Monaco, markers, dirty state, diff vs active) | IMPROVE |
 | 8 | Whole-config import | `POST /api/import` (overwrites immediately) | `ProfileAPI.Import` → new profile + revision | IMPROVE |
 | 9 | Whole-config export | `GET /api/export` | `ConfigAPI.ExportRevision` (plain sing-box JSON) | KEEP |
-| 10 | Share link import | `POST /api/share/import` | `ShareAPI.ParseShareLink` → preview → insert as revision | IMPROVE |
+| 10 | Share link import | `POST /api/share/import` | `ProfileAPI.CreateProfileFromShareLinks` generates a whole profile from pasted links (ADR 014); `ShareAPI.ParseShareLink` → preview → insert as revision | IMPROVE |
 | 11 | Share link export | `GET /api/share/export/{tag}` | `ShareAPI.BuildShareLink` | KEEP |
 | 12 | Structural validation | `SingBoxConfigService.validate` (Java) | `domain/config` validation (Go, pure, no persistence) | KEEP |
 | 13 | Canonical validation | `POST /api/check` → `sing-box check` | `singbox.Validator` used by the apply pipeline | IMPROVE |
@@ -27,7 +27,7 @@ Legend: **KEEP** (same feature, new implementation) · **IMPROVE** (feature kept
 | 20 | Traffic monitoring | Clash API polled every 2 s from the frontend, immortal poller | `app/traffic` collector bound to RUNNING, `traffic:snapshot` events | IMPROVE |
 | 21 | Managed sing-box download | `POST /api/singbox/install` (latest, no checksum, `tar -xf`) | `BinaryAPI.CheckForUpdates` + `InstallStableUpdate` (stable only, SHA-256, safe extract, probe, atomic install, rollback) | IMPROVE |
 | 22 | Custom sing-box binary | `--singbox.binary=...` only via CLI flag | persisted `binarySource=managed\|custom` + `customBinaryPath`, explicit switch | IMPROVE |
-| 23 | Templates | 3 bundled JSONs, overwrite config | 5 starters (`Empty`, `TUN basic`, `TUN + VLESS Reality`, `SOCKS local proxy`, `Selector`) → new revision | IMPROVE |
+| 23 | Templates | 3 bundled JSONs, overwrite config | 5 starters (`Empty`, `TUN basic`, `TUN + VLESS Reality`, `SOCKS local proxy`, `Selector`) → new revision; two of them are the skeletons a share-link profile is generated on (ADR 014) | IMPROVE |
 | 24 | Autostart | macOS LaunchAgent (`java -jar`), Windows `HKCU\...\Run` (`javaw`) | `platform.Autostart` interface, points at the native app | KEEP |
 | 25 | Auto-connect | `StartupTasks` delayed start | settings-driven auto-connect with validation gate and persistent error surface | IMPROVE |
 | 26 | System tray | AWT `SystemTray` icon | `internal/tray` (macOS menu bar) + `desktop/tray.go` (ADR 010) | ADD |

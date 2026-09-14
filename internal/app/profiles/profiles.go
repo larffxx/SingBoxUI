@@ -312,6 +312,36 @@ func (s *Service) Import(ctx context.Context, in ImportInput) (profile.Profile, 
 	return p, nil
 }
 
+// CreateFromShareLinks creates a profile whose first revision is generated from pasted share
+// links (spec §39). The links are turned into a configuration by GenerateFromShareLinks and the
+// profile is then created exactly like an imported one, so the document is validated, the
+// revision carries the share-import source, and nothing is created when the links are unusable.
+//
+// The name the user typed wins; a profile named by the dialog's own label is the fallback.
+func (s *Service) CreateFromShareLinks(ctx context.Context, in ShareLinkInput) (profile.Profile, ShareLinkConfig, error) {
+	const op = "profiles.CreateFromShareLinks"
+	generated, err := GenerateFromShareLinks(in)
+	if err != nil {
+		return profile.Profile{}, ShareLinkConfig{}, err
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		name = generated.Name
+	}
+	p, err := s.Import(ctx, ImportInput{
+		Name:        name,
+		Description: in.Description,
+		ConfigJSON:  generated.ConfigJSON,
+		Source:      profile.SourceShareImport,
+	})
+	if err != nil {
+		return profile.Profile{}, ShareLinkConfig{}, err
+	}
+	s.logger.Info("profile created from share links", "operation", op,
+		"profileId", p.ID, "kind", generated.Kind, "links", generated.Count)
+	return p, generated, nil
+}
+
 // Templates returns the built-in profile starters.
 func (s *Service) Templates() []templates.Template { return templates.All() }
 

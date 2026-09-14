@@ -189,6 +189,36 @@ export function useCreateProfileMutation(): UseMutationResult<
   })
 }
 
+/**
+ * The shapes a configuration generated from a share link can take. The backend declares them,
+ * so the dialog offers exactly what it can generate; the list only changes with a release.
+ */
+export function useShareLinkBasesQuery(): UseQueryResult<desktop.ShareLinkBasesPayload> {
+  return useQuery({
+    queryKey: keys.profiles.shareLinkBases(),
+    queryFn: () => profilesApi.listShareLinkBases(),
+    enabled: enabled(),
+    staleTime: Number.POSITIVE_INFINITY,
+  })
+}
+
+/** Creates a profile whose first revision is generated from pasted share links (spec §39). */
+export function useCreateFromShareLinksMutation(): UseMutationResult<
+  desktop.ShareLinkProfilePayload,
+  unknown,
+  desktop.CreateProfileFromShareLinksRequest
+> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (input: desktop.CreateProfileFromShareLinksRequest) =>
+      profilesApi.createFromShareLinks(input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.profiles.all })
+      void client.invalidateQueries({ queryKey: keys.config.all })
+    },
+  })
+}
+
 /** Imports a config file as a new profile (also used for the legacy flow). */
 export function useImportProfileMutation(): UseMutationResult<
   desktop.ProfilePayload,

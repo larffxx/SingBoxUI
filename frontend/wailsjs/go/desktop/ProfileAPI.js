@@ -10,6 +10,10 @@ export function CreateProfile(arg1) {
   return window['go']['desktop']['ProfileAPI']['CreateProfile'](arg1);
 }
 
+export function CreateProfileFromShareLinks(arg1) {
+  return window['go']['desktop']['ProfileAPI']['CreateProfileFromShareLinks'](arg1);
+}
+
 export function DeleteProfile(arg1) {
   return window['go']['desktop']['ProfileAPI']['DeleteProfile'](arg1);
 }
@@ -36,6 +40,10 @@ export function ListProfiles() {
 
 export function ListRevisions(arg1, arg2) {
   return window['go']['desktop']['ProfileAPI']['ListRevisions'](arg1, arg2);
+}
+
+export function ListShareLinkBases() {
+  return window['go']['desktop']['ProfileAPI']['ListShareLinkBases']();
 }
 
 export function ListTemplates() {

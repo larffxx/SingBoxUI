@@ -15,6 +15,7 @@ import {
   Download,
   FilePlus2,
   FolderInput,
+  Link2,
   Pencil,
   Play,
   Plus,
@@ -62,6 +63,7 @@ import {
   Toolbar,
 } from '@/shared/ui'
 
+import { CreateFromShareDialog } from './CreateFromShareDialog'
 import { saveExport } from './exportFile'
 import { ImportConfigDialog } from './ImportConfigDialog'
 import {
@@ -98,6 +100,7 @@ export function ProfilesRoute(): React.ReactElement {
   const [legacyDismissed, setLegacyDismissed] = React.useState(false)
   const [createOpen, setCreateOpen] = React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)
+  const [shareOpen, setShareOpen] = React.useState(false)
   const [renameTarget, setRenameTarget] = React.useState<profile.Profile | null>(null)
   const [duplicateTarget, setDuplicateTarget] = React.useState<profile.Profile | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<profile.Profile | null>(null)
@@ -174,6 +177,15 @@ export function ProfilesRoute(): React.ReactElement {
         description="Независимые конфигурации sing-box: у каждой своя история ревизий и свой активный файл."
         actions={
           <Toolbar>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShareOpen(true)
+              }}
+            >
+              <Link2 className="h-4 w-4" aria-hidden />
+              Из ссылки
+            </Button>
             <Button
               variant="secondary"
               onClick={() => {
@@ -524,6 +536,20 @@ export function ProfilesRoute(): React.ReactElement {
               openProfile(payload.profile.id)
             },
           })
+        }}
+      />
+
+      <CreateFromShareDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        onCreated={(created, warnings) => {
+          setShareOpen(false)
+          setNotice(
+            warnings.length === 0
+              ? `Профиль «${created.name}» создан из ссылки.`
+              : `Профиль «${created.name}» создан из ссылки, строк пропущено: ${warnings.length}.`,
+          )
+          openProfile(created.id)
         }}
       />
 

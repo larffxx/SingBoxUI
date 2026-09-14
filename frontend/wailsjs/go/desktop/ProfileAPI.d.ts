@@ -6,6 +6,8 @@ export function ApplyTemplateToProfile(arg1:string,arg2:string):Promise<desktop.
 
 export function CreateProfile(arg1:desktop.CreateProfileRequest):Promise<desktop.ProfilePayload>;
 
+export function CreateProfileFromShareLinks(arg1:desktop.CreateProfileFromShareLinksRequest):Promise<desktop.ShareLinkProfilePayload>;
+
 export function DeleteProfile(arg1:string):Promise<desktop.ProfilesPayload>;
 
 export function DuplicateProfile(arg1:string,arg2:string):Promise<desktop.ProfilePayload>;
@@ -19,6 +21,8 @@ export function ImportProfile(arg1:desktop.CreateProfileRequest):Promise<desktop
 export function ListProfiles():Promise<desktop.ProfilesPayload>;
 
 export function ListRevisions(arg1:string,arg2:number):Promise<desktop.RevisionsPayload>;
+
+export function ListShareLinkBases():Promise<desktop.ShareLinkBasesPayload>;
 
 export function ListTemplates():Promise<desktop.TemplatesPayload>;
 

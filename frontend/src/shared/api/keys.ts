@@ -13,6 +13,7 @@ export const keys = {
     list: () => [...keys.profiles.all, 'list'] as const,
     detail: (profileId: string) => [...keys.profiles.all, 'detail', profileId] as const,
     templates: () => [...keys.profiles.all, 'templates'] as const,
+    shareLinkBases: () => [...keys.profiles.all, 'shareLinkBases'] as const,
     revisions: (profileId: string, limit: number) =>
       [...keys.profiles.all, 'revisions', profileId, limit] as const,
   },

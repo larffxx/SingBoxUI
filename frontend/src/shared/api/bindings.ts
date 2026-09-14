@@ -61,6 +61,12 @@ export const profilesApi = {
     unwrap(await ProfileAPI.ExportProfile(id)),
   listTemplates: async (): Promise<desktop.TemplatesPayload> =>
     unwrap(await ProfileAPI.ListTemplates()),
+  listShareLinkBases: async (): Promise<desktop.ShareLinkBasesPayload> =>
+    unwrap(await ProfileAPI.ListShareLinkBases()),
+  createFromShareLinks: async (
+    input: desktop.CreateProfileFromShareLinksRequest,
+  ): Promise<desktop.ShareLinkProfilePayload> =>
+    unwrap(await ProfileAPI.CreateProfileFromShareLinks(input)),
   applyTemplate: async (profileId: string, templateId: string): Promise<desktop.ProfilePayload> =>
     unwrap(await ProfileAPI.ApplyTemplateToProfile(profileId, templateId)),
   listRevisions: async (profileId: string, limit: number): Promise<desktop.RevisionsPayload> =>

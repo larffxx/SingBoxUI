@@ -51,6 +51,63 @@ type TemplatesPayload struct {
 	Error     *apperr.Error        `json:"error,omitempty"`
 }
 
+// CreateProfileFromShareLinksRequest is the frontend shape for creating a profile out of pasted
+// share links (spec §39).
+type CreateProfileFromShareLinksRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// Links is the pasted text: one link per line, comments and blank lines allowed.
+	Links string `json:"links"`
+	// Base selects one of ShareLinkBasesPayload.Bases; empty means the first one.
+	Base string `json:"base"`
+}
+
+// ShareLinkProfilePayload carries the profile that was created from a paste, plus what the
+// dialog has to show about it: how many links went in, which protocol led, the name the backend
+// derived from them and the lines or parameters it could not use.
+type ShareLinkProfilePayload struct {
+	Profile       profile.Profile `json:"profile"`
+	Kind          string          `json:"kind"`
+	Count         int             `json:"count"`
+	GeneratedName string          `json:"generatedName"`
+	Warnings      []string        `json:"warnings,omitempty"`
+	Error         *apperr.Error   `json:"error,omitempty"`
+}
+
+// ShareLinkBasesPayload carries the shapes a generated configuration can take. The backend
+// declares them so the dialog offers exactly what it can generate (ADR 013).
+type ShareLinkBasesPayload struct {
+	Bases []profiles.ShareLinkBase `json:"bases"`
+	Error *apperr.Error            `json:"error,omitempty"`
+}
+
+// ListShareLinkBases returns the shapes the create dialog offers for a share link.
+func (a *ProfileAPI) ListShareLinkBases() ShareLinkBasesPayload {
+	return ShareLinkBasesPayload{Bases: profiles.ShareLinkBases()}
+}
+
+// CreateProfileFromShareLinks creates a profile whose first revision is generated from pasted
+// share links (spec §39): the links become the profile's proxies and the chosen base decides
+// the inbounds, DNS and routing around them.
+func (a *ProfileAPI) CreateProfileFromShareLinks(req CreateProfileFromShareLinksRequest) ShareLinkProfilePayload {
+	p, generated, err := a.app.profiles.CreateFromShareLinks(a.app.callCtx(), profiles.ShareLinkInput{
+		Name:        req.Name,
+		Description: req.Description,
+		Links:       req.Links,
+		Base:        req.Base,
+	})
+	if err != nil {
+		return ShareLinkProfilePayload{Error: fail("ProfileAPI.CreateProfileFromShareLinks", err)}
+	}
+	return ShareLinkProfilePayload{
+		Profile:       p,
+		Kind:          generated.Kind,
+		Count:         generated.Count,
+		GeneratedName: generated.Name,
+		Warnings:      generated.Warnings,
+	}
+}
+
 // ExportPayload carries an exported configuration.
 type ExportPayload struct {
 	Export *profiles.ExportResult `json:"export,omitempty"`
