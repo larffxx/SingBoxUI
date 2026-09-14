@@ -12,7 +12,10 @@
 import { Link2 } from 'lucide-react'
 import * as React from 'react'
 
-import { useCreateFromShareLinksMutation, useShareLinkBasesQuery } from '@/features/profiles/queries'
+import {
+  useCreateFromShareLinksMutation,
+  useShareLinkBasesQuery,
+} from '@/features/profiles/queries'
 import { shareApi } from '@/shared/api/bindings'
 import type { profile, share } from '@/shared/api/bindings'
 import { describeError, hintFor, toAppError, type AppError } from '@/shared/api/errors'
