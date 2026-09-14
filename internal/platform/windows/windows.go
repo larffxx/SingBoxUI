@@ -81,8 +81,8 @@ type System struct {
 	DataDir string
 	// Autostart is the registry login item.
 	Autostart *Autostart
-	// Applications is the Windows application catalog, which reports that this
-	// platform cannot list its applications (ADR 011).
+	// Applications is the Windows application catalog: the programs this machine
+	// runs and the programs its Start Menu offers (ADR 013).
 	Applications *Applications
 	// PrivilegeRunner launches sing-box with administrator rights, or directly
 	// when the caller asks for no elevation.
@@ -111,7 +111,7 @@ func New() (*System, error) {
 	return &System{
 		DataDir:         dataDir,
 		Autostart:       autostart,
-		Applications:    NewApplications(),
+		Applications:    NewApplications(dataDir),
 		PrivilegeRunner: runner,
 	}, nil
 }

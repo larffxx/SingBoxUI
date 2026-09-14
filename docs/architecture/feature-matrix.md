@@ -10,7 +10,7 @@ Legend: **KEEP** (same feature, new implementation) · **IMPROVE** (feature kept
 | 3 | Structured inbound editing | `POST /api/inbounds` | `frontend/features/inbound-editor` | IMPROVE |
 | 4 | Structured DNS editing | `POST /api/dns/servers`, `POST /api/section/dns` | `frontend/features/dns-editor`, `ConfigAPI.SaveRevision` | IMPROVE |
 | 5 | Routing rules editing | `POST /api/route/rules`, delete by index | `frontend/features/routing-editor` | IMPROVE |
-| 6 | Split tunneling helper | `POST /api/split/rules` (domain/ip/geo/process/port/protocol → outbound) | `frontend/features/profiles` routing tab: rules by domain/ip/port plus an application picker writing `process_path_regex` rules (ADR 011); the rule editor carries `process_name`/`process_path`/`process_path_regex` | REPLACED |
+| 6 | Split tunneling helper | `POST /api/split/rules` (domain/ip/geo/process/port/protocol → outbound) | `frontend/features/profiles` routing tab: rules by domain/ip/port plus a program picker writing the condition the platform declares (`process_path_regex` on macOS, `process_name` on Windows — ADR 011, ADR 013); the rule editor carries `process_name`/`process_path`/`process_path_regex` | REPLACED |
 | 7 | Raw JSON editing | `<textarea>` + load/validate/save | `frontend/features/raw-editor` (Monaco, markers, dirty state, diff vs active) | IMPROVE |
 | 8 | Whole-config import | `POST /api/import` (overwrites immediately) | `ProfileAPI.Import` → new profile + revision | IMPROVE |
 | 9 | Whole-config export | `GET /api/export` | `ConfigAPI.ExportRevision` (plain sing-box JSON) | KEEP |

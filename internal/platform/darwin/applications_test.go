@@ -176,8 +176,8 @@ func TestListApplicationsDescribesEveryBundle(t *testing.T) {
 	if !strings.HasSuffix(first.Path, "/Anonymous.app") {
 		t.Errorf("Path = %q, want an absolute bundle path", first.Path)
 	}
-	if first.ProcessPathRegex != BundlePathRegex(first.Path) {
-		t.Errorf("ProcessPathRegex = %q, want the expression of %q", first.ProcessPathRegex, first.Path)
+	if first.MatchKey != applications.MatchProcessPathRegex || first.MatchValue != BundlePathRegex(first.Path) {
+		t.Errorf("condition = %s %q, want the expression of %q", first.MatchKey, first.MatchValue, first.Path)
 	}
 	for _, item := range got {
 		if strings.Contains(item.Name, "Broken") || strings.Contains(item.Name, "NotABundle") {
@@ -320,26 +320,29 @@ func TestApplicationsListsThisMac(t *testing.T) {
 		t.Fatal("no application was found on a Mac that has /Applications")
 	}
 	for _, item := range listed {
-		if item.Name == "" || item.Path == "" || item.ProcessPathRegex == "" {
+		if item.Name == "" || item.Path == "" || item.MatchKey == "" || item.MatchValue == "" {
 			t.Fatalf("incomplete entry: %+v", item)
 		}
 		if !strings.HasSuffix(item.Path, bundleSuffix) {
 			t.Errorf("Path %q is not a bundle", item.Path)
 		}
-		if !strings.HasPrefix(item.ProcessPathRegex, "^") {
-			t.Errorf("ProcessPathRegex %q is not anchored", item.ProcessPathRegex)
+		if item.MatchKey != applications.MatchProcessPathRegex {
+			t.Errorf("MatchKey = %q, want %q on macOS", item.MatchKey, applications.MatchProcessPathRegex)
+		}
+		if !strings.HasPrefix(item.MatchValue, "^") {
+			t.Errorf("MatchValue %q is not anchored", item.MatchValue)
 		}
 		// The expression must match the executable path of the bundle it was
 		// derived from, which is what the tested /private resolution protects.
-		re := regexpFor(t, item.ProcessPathRegex)
+		re := regexpFor(t, item.MatchValue)
 		if item.Executable != "" && !re.MatchString(filepath.Join(item.Path, "Contents", "MacOS", item.Executable)) {
-			t.Errorf("%q does not match the executable of %q", item.ProcessPathRegex, item.Path)
+			t.Errorf("%q does not match the executable of %q", item.MatchValue, item.Path)
 		}
 	}
 	// Every application the user can see must survive a round-trip through the
 	// payload the frontend receives.
-	raw, err := json.Marshal(applications.Application{Name: listed[0].Name, ProcessPathRegex: listed[0].ProcessPathRegex})
-	if err != nil || !strings.Contains(string(raw), "processPathRegex") {
+	raw, err := json.Marshal(applications.Application{Name: listed[0].Name, MatchKey: listed[0].MatchKey, MatchValue: listed[0].MatchValue})
+	if err != nil || !strings.Contains(string(raw), "matchValue") {
 		t.Fatalf("the entry does not serialise: %s (%v)", raw, err)
 	}
 }

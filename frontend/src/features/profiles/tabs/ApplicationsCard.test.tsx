@@ -1,10 +1,11 @@
 /**
- * Applications card tests (ADR 011).
+ * Applications card tests (ADR 011, ADR 013).
  *
  * The card is the only place where a user adds a program to the routing rules, so
  * what is covered here is the round trip: the row reads the state out of the
- * document, and a click writes a rule that selects the application by its
- * process path. A machine without a catalog explains itself instead of failing.
+ * document, and a click writes the rule the platform declared for that program —
+ * a process path on macOS, a process name on Windows. A machine without a
+ * catalog explains itself instead of failing.
  */
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -19,7 +20,8 @@ import { createAppQueryClient } from '@/app/queryClient'
 import { ApplicationsCard } from './ApplicationsCard'
 import type { JsonObject } from '../jsonDoc'
 
-const TELEGRAM = '^/Applications/Telegram\\.app/'
+const TELEGRAM = '^/Applications/Telegram\\\\.app/'
+const DISCORD = '^/Applications/Discord\\\\.app/'
 
 const supportedPayload = {
   apps: {
@@ -31,14 +33,42 @@ const supportedPayload = {
         bundleId: 'ru.keepcoder.Telegram',
         path: '/Applications/Telegram.app',
         executable: 'Telegram',
-        processPathRegex: TELEGRAM,
+        matchKey: 'process_path_regex',
+        matchValue: TELEGRAM,
       },
       {
         name: 'Discord',
         bundleId: 'com.hnc.Discord',
         path: '/Applications/Discord.app',
         executable: 'Discord',
-        processPathRegex: '^/Applications/Discord\\.app/',
+        matchKey: 'process_path_regex',
+        matchValue: DISCORD,
+      },
+    ],
+  },
+}
+
+/** The listing a Windows machine answers: the condition is the file name. */
+const windowsPayload = {
+  apps: {
+    supported: true,
+    reason: '',
+    applications: [
+      {
+        name: 'Google Chrome',
+        bundleId: '',
+        path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        executable: 'chrome.exe',
+        matchKey: 'process_name',
+        matchValue: 'chrome.exe',
+      },
+      {
+        name: 'Telegram Desktop',
+        bundleId: '',
+        path: 'C:\\Users\\someone\\AppData\\Roaming\\Telegram Desktop\\Telegram.exe',
+        executable: 'Telegram.exe',
+        matchKey: 'process_name',
+        matchValue: 'Telegram.exe',
       },
     ],
   },
@@ -66,7 +96,7 @@ function baseDocument(rules: JsonObject[] = []): JsonObject {
  * reports comes back as its next input, so a click changes what the next click
  * sees.
  */
-async function renderCard(initial: JsonObject) {
+async function renderCard(initial: JsonObject, waitFor = 'Telegram') {
   const onChange = vi.fn()
   function Harness() {
     const [document, setDocument] = React.useState(initial)
@@ -85,7 +115,7 @@ async function renderCard(initial: JsonObject) {
       <Harness />
     </AppProviders>,
   )
-  await screen.findByText('Telegram')
+  await screen.findByText(waitFor)
   return onChange
 }
 
@@ -124,6 +154,25 @@ describe('applications card', () => {
     ])
   })
 
+  it('writes the condition the platform declared for a program', async () => {
+    // Windows selects a program by its file name; the card takes the condition
+    // from the listing and never derives one itself (ADR 013).
+    mocks.list.mockResolvedValue(windowsPayload)
+    const user = userEvent.setup({ delay: null })
+    const onChange = await renderCard(baseDocument(), 'Google Chrome')
+
+    await user.click(
+      within(screen.getByRole('group', { name: 'Google Chrome' })).getByRole('button', {
+        name: 'Через VPN',
+      }),
+    )
+
+    expect(rulesOf(lastDocument(onChange))).toEqual([
+      { action: 'route', outbound: 'proxy-vless', process_name: ['chrome.exe'] },
+    ])
+    expect(screen.getByText(/process_name/)).toBeInTheDocument()
+  })
+
   it('routes an application directly and back again', async () => {
     const user = userEvent.setup({ delay: null })
     const onChange = await renderCard(baseDocument())
@@ -134,7 +183,7 @@ describe('applications card', () => {
       {
         action: 'route',
         outbound: 'direct',
-        process_path_regex: ['^/Applications/Discord\\.app/'],
+        process_path_regex: [DISCORD],
       },
     ])
 
@@ -162,7 +211,7 @@ describe('applications card', () => {
     mocks.list.mockResolvedValue({
       apps: {
         supported: false,
-        reason: 'Windows не предоставляет список установленных программ',
+        reason: 'эта система не даёт список установленных программ',
         applications: [],
       },
     })
@@ -173,7 +222,7 @@ describe('applications card', () => {
       </AppProviders>,
     )
 
-    expect(await screen.findByText(/Windows не предоставляет список/)).toBeInTheDocument()
+    expect(await screen.findByText(/не даёт список установленных программ/)).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Telegram' })).not.toBeInTheDocument()
   })
 
@@ -185,5 +234,18 @@ describe('applications card', () => {
 
     expect(screen.queryByText('Telegram')).not.toBeInTheDocument()
     expect(screen.getByText('Discord')).toBeInTheDocument()
+  })
+
+  it('filters the list by the file a program is selected by', async () => {
+    // On Windows the row is a program whose name the user may not know: the
+    // path and the executable are searchable as well.
+    mocks.list.mockResolvedValue(windowsPayload)
+    const user = userEvent.setup({ delay: null })
+    await renderCard(baseDocument(), 'Google Chrome')
+
+    await user.type(screen.getByLabelText('Поиск'), 'chrome.exe')
+
+    expect(screen.getByText('Google Chrome')).toBeInTheDocument()
+    expect(screen.queryByText('Telegram Desktop')).not.toBeInTheDocument()
   })
 })

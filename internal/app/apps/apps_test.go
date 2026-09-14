@@ -32,11 +32,12 @@ func TestListReturnsTheApplicationsOfTheMachine(t *testing.T) {
 	service := New(Deps{Catalog: &stubCatalog{
 		supported: true,
 		items: []applications.Application{{
-			Name:             "Telegram",
-			BundleID:         "ru.keepcoder.Telegram",
-			Path:             "/Applications/Telegram.app",
-			Executable:       "Telegram",
-			ProcessPathRegex: `^/Applications/Telegram\.app/`,
+			Name:       "Telegram",
+			BundleID:   "ru.keepcoder.Telegram",
+			Path:       "/Applications/Telegram.app",
+			Executable: "Telegram",
+			MatchKey:   applications.MatchProcessPathRegex,
+			MatchValue: `^/Applications/Telegram\.app/`,
 		}},
 	}})
 
@@ -50,7 +51,7 @@ func TestListReturnsTheApplicationsOfTheMachine(t *testing.T) {
 	if len(got.Applications) != 1 || got.Applications[0].Name != "Telegram" {
 		t.Fatalf("Applications = %+v, want Telegram", got.Applications)
 	}
-	if got.Applications[0].ProcessPathRegex == "" {
+	if got.Applications[0].MatchKey == "" || got.Applications[0].MatchValue == "" {
 		t.Error("the entry carries no condition to write into a rule")
 	}
 }

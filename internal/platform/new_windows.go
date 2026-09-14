@@ -8,7 +8,8 @@ import "github.com/larffxx/singboxui/internal/platform/windows"
 var _ Autostart = (*windows.Autostart)(nil)
 
 // A compile-time check that the Windows application catalog fulfils the platform
-// port; it reports that this platform cannot list its applications (ADR 011).
+// port: the programs this machine runs and the programs its Start Menu offers
+// (ADR 013).
 var _ ApplicationCatalog = (*windows.Applications)(nil)
 
 // New returns the platform of this Windows machine.

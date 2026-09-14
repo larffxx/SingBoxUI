@@ -63,7 +63,8 @@ internal/app/binary          managed/custom binary source, stable release check,
 internal/app/traffic         Clash API collector bound to RUNNING
 internal/app/share           share-link parse/build (isolated, table-driven tests)
 internal/app/settings        typed settings + autostart/auto-connect orchestration
-internal/app/apps           installed applications as routing targets (ADR 011), macOS catalog behind a port
+internal/app/apps           installed programs as routing targets (ADR 011, ADR 013), macOS bundle and
+                            Windows program catalogs behind one port
 
 internal/desktop/bindings    ProfileAPI, ConfigAPI, RuntimeAPI, BinaryAPI, SettingsAPI, ShareAPI, TrafficAPI
 internal/desktop/dto         frontend-facing structs (Wails generates TS models from these)
@@ -135,7 +136,7 @@ normal `PRIVILEGE_DENIED` failure, and the PID is tracked so it can always be st
 /profiles         list + create/import
 /profiles/$id     workspace: Overview | Outbounds | Inbounds | Routing | DNS | Raw JSON | History
 /routing          не отдельный экран: правила маршрутизации, включая выбор приложений по названию,
-                  принадлежат профилю (ADR 011)
+                  принадлежат профилю (ADR 011, ADR 013)
 /dns              global DNS helper
 /runtime          controls, live log console, traffic
 /settings         binary source/update, autostart, auto-connect, theme, log level

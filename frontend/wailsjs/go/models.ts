@@ -28,7 +28,8 @@ export namespace applications {
 	    bundleId: string;
 	    path: string;
 	    executable: string;
-	    processPathRegex: string;
+	    matchKey: string;
+	    matchValue: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Application(source);
@@ -40,7 +41,8 @@ export namespace applications {
 	        this.bundleId = source["bundleId"];
 	        this.path = source["path"];
 	        this.executable = source["executable"];
-	        this.processPathRegex = source["processPathRegex"];
+	        this.matchKey = source["matchKey"];
+	        this.matchValue = source["matchValue"];
 	    }
 	}
 

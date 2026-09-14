@@ -16,11 +16,12 @@ func TestAppsAPIListsTheCatalogOfTheMachine(t *testing.T) {
 			t.Fatalf("the harness platform is %T", deps.Platform)
 		}
 		plat.apps = &fakeApplications{supported: true, items: []applications.Application{{
-			Name:             "Telegram",
-			BundleID:         "ru.keepcoder.Telegram",
-			Path:             "/Applications/Telegram.app",
-			Executable:       "Telegram",
-			ProcessPathRegex: `^/Applications/Telegram\.app/`,
+			Name:       "Telegram",
+			BundleID:   "ru.keepcoder.Telegram",
+			Path:       "/Applications/Telegram.app",
+			Executable: "Telegram",
+			MatchKey:   applications.MatchProcessPathRegex,
+			MatchValue: `^/Applications/Telegram\.app/`,
 		}}}
 	})
 
@@ -35,7 +36,7 @@ func TestAppsAPIListsTheCatalogOfTheMachine(t *testing.T) {
 		t.Fatalf("Applications = %+v, want one entry", got.Apps.Applications)
 	}
 	entry := got.Apps.Applications[0]
-	if entry.Name != "Telegram" || entry.ProcessPathRegex == "" {
+	if entry.Name != "Telegram" || entry.MatchKey == "" || entry.MatchValue == "" {
 		t.Errorf("entry = %+v, want a name and a condition to write into a rule", entry)
 	}
 }

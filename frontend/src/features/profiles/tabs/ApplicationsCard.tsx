@@ -1,11 +1,13 @@
 /**
- * Applications card of the routing tab (ADR 011).
+ * Applications card of the routing tab (ADR 011, ADR 013).
  *
  * The routing rules of this application were always address-based: a domain, a
- * prefix, a port. On macOS a program is not reachable that way — the user knows
- * “Telegram”, not an IP range — so this card lists the installed applications and
- * writes the rule that selects one: a `process_path_regex` anchored at the
- * bundle, which sing-box matches against the real path of the process.
+ * prefix, a port. A program is not reachable that way — the user knows
+ * “Telegram”, not an IP range — so this card lists the programs of this machine
+ * and writes the rule that selects one: a condition matched against the process
+ * sing-box reports for a connection. Which condition that is comes from the
+ * backend with the listing, because it differs per platform (a `process_path_regex`
+ * anchored at a macOS bundle, a `process_name` for a Windows program).
  *
  * The rows read the current document, so the state of an application is what the
  * configuration says, not a separate bookkeeping the JSON could disagree with.
@@ -29,9 +31,10 @@ import { getArray, getObject, getString, type JsonObject } from '../jsonDoc'
 import {
   appRulesCount,
   appRuleTarget,
+  conditionDescription,
   setAppRoute,
-  APP_RULE_KEY,
   type AppTarget,
+  type AppCondition,
 } from '../appRules'
 import { useApplicationsQuery } from '../queries'
 import type { DocTabProps } from './types'
@@ -43,10 +46,16 @@ function defaultProxyOutbound(route: JsonObject, outboundTags: string[]): string
   return outboundTags.find((tag) => tag !== 'direct' && tag !== 'block') ?? ''
 }
 
-function matchesFilter(query: string, name: string, bundleId: string): boolean {
+/** matchesFilter reports whether one program answers to the search box. */
+function matchesFilter(query: string, needles: string[]): boolean {
   const needle = query.trim().toLowerCase()
   if (needle === '') return true
-  return name.toLowerCase().includes(needle) || bundleId.toLowerCase().includes(needle)
+  return needles.some((value) => value.toLowerCase().includes(needle))
+}
+
+/** entryCondition is the rule condition the backend declared for one program. */
+function entryCondition(app: { matchKey: string; matchValue: string }): AppCondition {
+  return { key: app.matchKey, value: app.matchValue }
 }
 
 export function ApplicationsCard({ root, onChange }: DocTabProps) {
@@ -72,7 +81,7 @@ export function ApplicationsCard({ root, onChange }: DocTabProps) {
         <Card>
           <CardHeader>
             <CardTitle>Приложения</CardTitle>
-            <CardDescription>Ищу установленные приложения…</CardDescription>
+            <CardDescription>Ищу установленные программы…</CardDescription>
           </CardHeader>
         </Card>
       )
@@ -84,24 +93,28 @@ export function ApplicationsCard({ root, onChange }: DocTabProps) {
     onChange({ ...root, route: { ...route, rules: next } })
   }
 
-  const choose = (pattern: string, target: AppTarget) => {
-    setRules(setAppRoute(rules, pattern, target, proxyOutbound))
+  const choose = (condition: AppCondition, target: AppTarget) => {
+    setRules(setAppRoute(rules, condition, target, proxyOutbound))
   }
 
-  const applications = list.applications.filter((app) =>
-    matchesFilter(filter, app.name, app.bundleId),
+  // A program the backend could not describe with a condition cannot be routed
+  // from here: the rule editor is the tool for it.
+  const described = list.applications.filter((app) => app.matchKey !== '' && app.matchValue !== '')
+  const applications = described.filter((app) =>
+    matchesFilter(filter, [app.name, app.bundleId, app.executable, app.path]),
   )
   const visible = onlyMarked
-    ? applications.filter((app) => appRuleTarget(rules, app.processPathRegex) !== 'off')
+    ? applications.filter((app) => appRuleTarget(rules, entryCondition(app)) !== 'off')
     : applications
+  const conditionKey = described[0]?.matchKey ?? ''
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Приложения</CardTitle>
         <CardDescription>
-          Отметьте, что должно идти через VPN, а что напрямую — правило выберет программу по её
-          приложению, без IP-адресов. Правила применяются по порядку, поэтому новое правило
+          Отметьте, что должно идти через VPN, а что напрямую — правило выберет программу по ней
+          самой, а не по домену или адресу. Правила применяются по порядку, поэтому новое правило
           добавляется в конец списка ниже.
         </CardDescription>
       </CardHeader>
@@ -143,7 +156,7 @@ export function ApplicationsCard({ root, onChange }: DocTabProps) {
                 <Input
                   id="apps-filter"
                   value={filter}
-                  placeholder="Telegram, Chrome, ru.keepcoder…"
+                  placeholder="Telegram, Chrome, chrome.exe…"
                   spellCheck={false}
                   autoComplete="off"
                   onChange={(event) => {
@@ -168,12 +181,13 @@ export function ApplicationsCard({ root, onChange }: DocTabProps) {
               <Alert tone="info" title="Ничего не найдено">
                 {onlyMarked
                   ? 'Ни одному приложению ещё не назначен маршрут.'
-                  : 'Ни одно приложение не подошло под запрос.'}
+                  : 'Ни одна программа не подошла под запрос.'}
               </Alert>
             ) : (
               <ul className="divide-y rounded-md border">
                 {visible.map((app) => {
-                  const target = appRuleTarget(rules, app.processPathRegex)
+                  const condition = entryCondition(app)
+                  const target = appRuleTarget(rules, condition)
                   return (
                     <li
                       key={app.path}
@@ -193,7 +207,7 @@ export function ApplicationsCard({ root, onChange }: DocTabProps) {
                           aria-pressed={target === 'proxy'}
                           disabled={proxyOutbound === ''}
                           onClick={() => {
-                            choose(app.processPathRegex, target === 'proxy' ? 'off' : 'proxy')
+                            choose(condition, target === 'proxy' ? 'off' : 'proxy')
                           }}
                         >
                           Через VPN
@@ -204,7 +218,7 @@ export function ApplicationsCard({ root, onChange }: DocTabProps) {
                           variant={target === 'direct' ? 'default' : 'outline'}
                           aria-pressed={target === 'direct'}
                           onClick={() => {
-                            choose(app.processPathRegex, target === 'direct' ? 'off' : 'direct')
+                            choose(condition, target === 'direct' ? 'off' : 'direct')
                           }}
                         >
                           Напрямую
@@ -216,11 +230,13 @@ export function ApplicationsCard({ root, onChange }: DocTabProps) {
               </ul>
             )}
 
-            <p className="text-xs text-muted-foreground">
-              Правил для приложений: {appRulesCount(rules)}. Условие — <code>{APP_RULE_KEY}</code>:
-              sing-box сопоставляет его с реальным путём запущенного процесса, поэтому правило
-              действует и на вспомогательные процессы внутри приложения.
-            </p>
+            {conditionKey === '' ? null : (
+              <p className="text-xs text-muted-foreground">
+                Правил для приложений: {appRulesCount(rules)}. Условие — <code>{conditionKey}</code>
+                : {conditionDescription(conditionKey)} Другое условие для программы или целой папки
+                (например, каталога игровой библиотеки) можно добавить на вкладке правил.
+              </p>
+            )}
           </>
         ) : null}
       </CardContent>

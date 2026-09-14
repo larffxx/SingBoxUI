@@ -231,11 +231,14 @@ func describeApplication(path string, plistJSON func(string) ([]byte, error)) (a
 		name = strings.TrimSuffix(filepath.Base(resolved), bundleSuffix)
 	}
 	return applications.Application{
-		Name:             name,
-		BundleID:         info.Identifier,
-		Path:             resolved,
-		Executable:       info.Executable,
-		ProcessPathRegex: BundlePathRegex(resolved),
+		Name:       name,
+		BundleID:   info.Identifier,
+		Path:       resolved,
+		Executable: info.Executable,
+		// A bundle is a directory tree, so the condition that selects the
+		// application is the anchored expression over that tree (ADR 011).
+		MatchKey:   applications.MatchProcessPathRegex,
+		MatchValue: BundlePathRegex(resolved),
 	}, true
 }
 
