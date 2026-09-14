@@ -93,9 +93,26 @@ func TestShellLinkTargetReadsAShortcutTheShellWrote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ShellLinkTarget: %v", err)
 	}
-	if !strings.EqualFold(got, target) {
+	// The same *file* is what matters: the shell answers in the form the shortcut
+	// carries, which can be the long or the short (8.3) form of the path.
+	if !strings.EqualFold(got, target) && !sameFile(t, got, target) {
 		t.Errorf("ShellLinkTarget = %q, want %q", got, target)
 	}
+}
+
+// sameFile reports whether two paths name the same file, whatever form each of
+// them is written in.
+func sameFile(t *testing.T, left, right string) bool {
+	t.Helper()
+	first, err := os.Stat(left)
+	if err != nil {
+		return false
+	}
+	second, err := os.Stat(right)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(first, second)
 }
 
 func TestShellLinkTargetRefusesAFileThatIsNotAShortcut(t *testing.T) {
