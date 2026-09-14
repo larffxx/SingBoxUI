@@ -127,6 +127,7 @@ func run() error {
 			application.SettingsAPI,
 			application.ShareAPI,
 			application.TrafficAPI,
+			application.AppsAPI,
 		},
 		Mac: &mac.Options{
 			TitleBar:             mac.TitleBarHiddenInset(),

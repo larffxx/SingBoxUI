@@ -43,6 +43,7 @@ Rules enforced by review and by package layout:
 internal/domain/profile      Profile, Revision, RevisionSource, ValidationStatus
 internal/domain/runtime      State (STOPPED..FAILED), Status snapshot
 internal/domain/config       structural validation, section/tag helpers, rule descriptors
+internal/domain/applications flat application descriptor: name, bundle id, path, process condition
 internal/domain/apperr       typed error codes + Error type (code/message/details/operation)
 
 internal/storage/sqlite      database/sql + modernc.org/sqlite (pure Go), migrations, repositories
@@ -50,7 +51,7 @@ internal/storage/migrations  embedded SQL (0001_init.sql, …)
 
 internal/singbox             Binary (version probe/exec path), Validator (check), Process (run/terminate), Format
 
-internal/platform            Platform interface, data-dir resolution, Autostart interface
+internal/platform            Platform interface, data-dir resolution, Autostart interface, ApplicationCatalog interface
 internal/platform/darwin     LaunchAgent autostart, osascript-based privileged launch, SIGTERM termination
 internal/platform/windows    registry autostart, ShellExecuteExW(runas) privileged launch, taskkill tree termination
 internal/privilege           PrivilegeRunner port + narrow privileged-launch helper mode
@@ -62,6 +63,7 @@ internal/app/binary          managed/custom binary source, stable release check,
 internal/app/traffic         Clash API collector bound to RUNNING
 internal/app/share           share-link parse/build (isolated, table-driven tests)
 internal/app/settings        typed settings + autostart/auto-connect orchestration
+internal/app/apps           installed applications as routing targets (ADR 011), macOS catalog behind a port
 
 internal/desktop/bindings    ProfileAPI, ConfigAPI, RuntimeAPI, BinaryAPI, SettingsAPI, ShareAPI, TrafficAPI
 internal/desktop/dto         frontend-facing structs (Wails generates TS models from these)
@@ -132,7 +134,8 @@ normal `PRIVILEGE_DENIED` failure, and the PID is tracked so it can always be st
 /dashboard        runtime state, active profile/revision, sing-box version, update availability, traffic, last error
 /profiles         list + create/import
 /profiles/$id     workspace: Overview | Outbounds | Inbounds | Routing | DNS | Raw JSON | History
-/routing          global routing helpers (split tunneling descriptors)
+/routing          не отдельный экран: правила маршрутизации, включая выбор приложений по названию,
+                  принадлежат профилю (ADR 011)
 /dns              global DNS helper
 /runtime          controls, live log console, traffic
 /settings         binary source/update, autostart, auto-connect, theme, log level

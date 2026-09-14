@@ -49,4 +49,8 @@ export const keys = {
     all: ['share'] as const,
     schemes: () => [...keys.share.all, 'schemes'] as const,
   },
+  apps: {
+    all: ['apps'] as const,
+    list: () => [...keys.apps.all, 'list'] as const,
+  },
 } as const

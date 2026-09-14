@@ -7,6 +7,11 @@ import "github.com/larffxx/singboxui/internal/platform/darwin"
 // A compile-time check that the macOS login item fulfils the platform port.
 var _ Autostart = (*darwin.Autostart)(nil)
 
+// A compile-time check that the macOS application catalog fulfils the platform
+// port: its methods are declared entirely in terms of the domain value type, so
+// no adapter is needed here.
+var _ ApplicationCatalog = (*darwin.Applications)(nil)
+
 // New returns the platform of this macOS machine.
 //
 // internal-contracts.md §2 asks the OS packages to expose
@@ -20,5 +25,5 @@ func New() (Platform, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newSystem(mechanisms.DataDir, mechanisms.Autostart, mechanisms.PrivilegeRunner), nil
+	return newSystem(mechanisms.DataDir, mechanisms.Autostart, mechanisms.Applications, mechanisms.PrivilegeRunner), nil
 }

@@ -21,6 +21,70 @@ export namespace apperr {
 
 }
 
+export namespace applications {
+	
+	export class Application {
+	    name: string;
+	    bundleId: string;
+	    path: string;
+	    executable: string;
+	    processPathRegex: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Application(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.bundleId = source["bundleId"];
+	        this.path = source["path"];
+	        this.executable = source["executable"];
+	        this.processPathRegex = source["processPathRegex"];
+	    }
+	}
+
+}
+
+export namespace apps {
+	
+	export class List {
+	    supported: boolean;
+	    reason?: string;
+	    applications: applications.Application[];
+	
+	    static createFrom(source: any = {}) {
+	        return new List(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.supported = source["supported"];
+	        this.reason = source["reason"];
+	        this.applications = this.convertValues(source["applications"], applications.Application);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace binary {
 	
 	export class UpdateInfo {
@@ -629,6 +693,38 @@ export namespace desktop {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.result = this.convertValues(source["result"], config.ApplyResult);
+	        this.error = this.convertValues(source["error"], apperr.Error);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class AppsPayload {
+	    apps: apps.List;
+	    error?: apperr.Error;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppsPayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.apps = this.convertValues(source["apps"], apps.List);
 	        this.error = this.convertValues(source["error"], apperr.Error);
 	    }
 	

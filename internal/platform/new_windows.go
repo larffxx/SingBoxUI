@@ -7,6 +7,10 @@ import "github.com/larffxx/singboxui/internal/platform/windows"
 // A compile-time check that the Windows login item fulfils the platform port.
 var _ Autostart = (*windows.Autostart)(nil)
 
+// A compile-time check that the Windows application catalog fulfils the platform
+// port; it reports that this platform cannot list its applications (ADR 011).
+var _ ApplicationCatalog = (*windows.Applications)(nil)
+
 // New returns the platform of this Windows machine.
 //
 // See new_darwin.go for why the OS packages return their own *System and the
@@ -17,5 +21,5 @@ func New() (Platform, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newSystem(mechanisms.DataDir, mechanisms.Autostart, mechanisms.PrivilegeRunner), nil
+	return newSystem(mechanisms.DataDir, mechanisms.Autostart, mechanisms.Applications, mechanisms.PrivilegeRunner), nil
 }

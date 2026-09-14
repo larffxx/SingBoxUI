@@ -36,6 +36,7 @@ import { ROUTE_RULE_PRESETS, type FieldSpec } from '../resourceSpecs'
 import { ResourceListEditor } from '../ResourceListEditor'
 import { TagMultiSelect } from '../TagMultiSelect'
 import { SpecFields } from '../fields'
+import { ApplicationsCard } from './ApplicationsCard'
 import { RULE_SET_TYPES } from './ruleSetTypes'
 import type { DocTabProps } from './types'
 
@@ -92,6 +93,24 @@ function ruleFields(outboundTags: string[]): FieldSpec[] {
     },
     { key: 'source_ip_cidr', label: 'Префиксы IP источника', kind: 'list' },
     { key: 'port', label: 'Порты', kind: 'list', hint: 'Номера портов, по одному в строке' },
+    {
+      key: 'process_name',
+      label: 'Имена процессов',
+      kind: 'list',
+      hint: 'Например Telegram — имя исполняемого файла (macOS, Windows, Linux)',
+    },
+    {
+      key: 'process_path',
+      label: 'Пути процессов',
+      kind: 'list',
+      hint: 'Полный путь исполняемого файла, совпадение точное',
+    },
+    {
+      key: 'process_path_regex',
+      label: 'Пути процессов (регулярное выражение)',
+      kind: 'list',
+      hint: 'Так записывает приложения карточка выше, например ^/Applications/Telegram\\.app/',
+    },
     { key: 'invert', label: 'Инвертировать условие', kind: 'boolean' },
     { key: 'ip_is_private', label: 'Только приватные адреса', kind: 'boolean' },
   ]
@@ -261,6 +280,8 @@ export function RouteTab({ root, onChange }: DocTabProps) {
           </label>
         </CardContent>
       </Card>
+
+      <ApplicationsCard root={root} onChange={onChange} />
 
       <Card>
         <CardHeader>

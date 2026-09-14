@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	appapps "github.com/larffxx/singboxui/internal/app/apps"
 	appbinary "github.com/larffxx/singboxui/internal/app/binary"
 	configsvc "github.com/larffxx/singboxui/internal/app/config"
 	"github.com/larffxx/singboxui/internal/app/profiles"
@@ -81,6 +82,7 @@ type App struct {
 	traffic  *traffic.Service
 	binaries *appbinary.Service
 	settings *appsettings.Service
+	apps     *appapps.Service
 	config   *configsvc.Service
 	profiles *profiles.Service
 	runtime  *appruntime.Supervisor
@@ -104,6 +106,7 @@ type App struct {
 	SettingsAPI *SettingsAPI
 	ShareAPI    *ShareAPI
 	TrafficAPI  *TrafficAPI
+	AppsAPI     *AppsAPI
 }
 
 // runtimeLink breaks the construction cycle between the configuration service
@@ -266,6 +269,11 @@ func New(deps Deps) *App {
 		},
 	})
 
+	a.apps = appapps.New(appapps.Deps{
+		Catalog: deps.Platform.Applications(),
+		Logger:  logger,
+	})
+
 	link := &runtimeLink{}
 	a.config = configsvc.New(configsvc.Deps{
 		Store:    deps.Store,
@@ -303,6 +311,7 @@ func New(deps Deps) *App {
 	a.SettingsAPI = &SettingsAPI{app: a}
 	a.ShareAPI = &ShareAPI{app: a}
 	a.TrafficAPI = &TrafficAPI{app: a}
+	a.AppsAPI = &AppsAPI{app: a}
 	return a
 }
 

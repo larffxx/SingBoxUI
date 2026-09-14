@@ -111,10 +111,11 @@ func dirOf(path string) string {
 // specific to an operating system - the layout, the directory creation and the
 // description of the machine - lives here, so both platforms cannot drift apart.
 type system struct {
-	info      Info
-	paths     Paths
-	autostart Autostart
-	privilege privilege.Runner
+	info         Info
+	paths        Paths
+	autostart    Autostart
+	applications ApplicationCatalog
+	privilege    privilege.Runner
 }
 
 // A compile-time check that the assembled platform fulfils the port the
@@ -122,12 +123,13 @@ type system struct {
 var _ Platform = (*system)(nil)
 
 // newSystem assembles the platform of the running machine.
-func newSystem(dataDir string, autostart Autostart, runner privilege.Runner) *system {
+func newSystem(dataDir string, autostart Autostart, applications ApplicationCatalog, runner privilege.Runner) *system {
 	return &system{
-		info:      hostSupport(runtime.GOOS, runtime.GOARCH),
-		paths:     layout(dataDir),
-		autostart: autostart,
-		privilege: runner,
+		info:         hostSupport(runtime.GOOS, runtime.GOARCH),
+		paths:        layout(dataDir),
+		autostart:    autostart,
+		applications: applications,
+		privilege:    runner,
 	}
 }
 
@@ -152,6 +154,10 @@ func (s *system) EnsureDirs() error {
 
 // Autostart returns the session-autostart adapter.
 func (s *system) Autostart() Autostart { return s.autostart }
+
+// Applications returns the catalog of the applications this machine has
+// installed.
+func (s *system) Applications() ApplicationCatalog { return s.applications }
 
 // PrivilegeRunner returns the platform's narrow privileged-launch adapter.
 func (s *system) PrivilegeRunner() privilege.Runner { return s.privilege }

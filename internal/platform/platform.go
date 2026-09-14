@@ -10,6 +10,7 @@ import (
 	"errors"
 	"path/filepath"
 
+	"github.com/larffxx/singboxui/internal/domain/applications"
 	"github.com/larffxx/singboxui/internal/privilege"
 )
 
@@ -74,6 +75,21 @@ type Autostart interface {
 	RemoveLegacy() error
 }
 
+// ApplicationCatalog lists the applications the machine can route by name
+// (ADR 011): a routing rule selects a program instead of an address.
+//
+// The port is declared in terms of the domain value type, so both OS packages
+// satisfy it without importing this one; see new_darwin.go for why that
+// direction is the only possible one.
+type ApplicationCatalog interface {
+	// Supported reports whether this platform can list its applications.
+	Supported() bool
+	// UnsupportedReason explains why not, when Supported is false.
+	UnsupportedReason() string
+	// List returns the installed applications, sorted by name.
+	List() ([]applications.Application, error)
+}
+
 // Platform is the whole OS abstraction handed to the application layer.
 type Platform interface {
 	// Info describes the current machine.
@@ -84,6 +100,9 @@ type Platform interface {
 	EnsureDirs() error
 	// Autostart returns the session-autostart adapter.
 	Autostart() Autostart
+	// Applications returns the catalog of the applications installed on this
+	// machine.
+	Applications() ApplicationCatalog
 	// PrivilegeRunner returns the platform's narrow privileged-launch adapter.
 	// It is a separate concern from the rest of the platform surface because
 	// only the runtime supervisor may use it (spec §27).

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/larffxx/singboxui/internal/domain/apperr"
+	"github.com/larffxx/singboxui/internal/domain/applications"
 	"github.com/larffxx/singboxui/internal/privilege"
 )
 
@@ -39,6 +40,20 @@ func (s *stubAutostart) LegacyEntry() string { return s.legacy }
 func (s *stubAutostart) RemoveLegacy() error {
 	s.legacy = ""
 	return nil
+}
+
+// stubApplications is an application catalog that lists one application: this
+// package only hands it on, so the platform port is what is under test here.
+type stubApplications struct{}
+
+var _ ApplicationCatalog = (*stubApplications)(nil)
+
+func (s *stubApplications) Supported() bool { return true }
+
+func (s *stubApplications) UnsupportedReason() string { return "" }
+
+func (s *stubApplications) List() ([]applications.Application, error) {
+	return []applications.Application{{Name: "Test", Path: "/Applications/Test.app"}}, nil
 }
 
 // stubRunner is a privilege runner that launches nothing: this package only hands
@@ -209,8 +224,9 @@ func TestHostSupportKnowsTheTargets(t *testing.T) {
 func TestSystemHandsOnTheMechanismsOfThePlatform(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "SingBoxUI")
 	autostart := &stubAutostart{legacy: "the Java entry"}
+	catalog := &stubApplications{}
 	runner := stubRunner{}
-	platform := newSystem(dir, autostart, runner)
+	platform := newSystem(dir, autostart, catalog, runner)
 
 	if got := platform.Paths(); got != layout(dir) {
 		t.Errorf("Paths() = %+v, want the layout of %q", got, dir)
@@ -220,6 +236,9 @@ func TestSystemHandsOnTheMechanismsOfThePlatform(t *testing.T) {
 	}
 	if got := platform.Autostart(); got != Autostart(autostart) {
 		t.Error("Autostart() does not return the platform's login item")
+	}
+	if got := platform.Applications(); got != ApplicationCatalog(catalog) {
+		t.Error("Applications() does not return the platform's application catalog")
 	}
 	if got := platform.PrivilegeRunner(); got != privilege.Runner(runner) {
 		t.Error("PrivilegeRunner() does not return the platform's privileged-launch adapter")
@@ -232,7 +251,7 @@ func TestSystemHandsOnTheMechanismsOfThePlatform(t *testing.T) {
 
 func TestEnsureDirsCreatesTheLayoutPrivately(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "SingBoxUI")
-	platform := newSystem(dir, &stubAutostart{}, stubRunner{})
+	platform := newSystem(dir, &stubAutostart{}, &stubApplications{}, stubRunner{})
 
 	if err := platform.EnsureDirs(); err != nil {
 		t.Fatalf("EnsureDirs() = %v", err)
@@ -300,7 +319,7 @@ func TestEnsureDirsReportsAFailureAsATypedError(t *testing.T) {
 	if err := os.WriteFile(dataDir, []byte("not a directory"), 0o600); err != nil {
 		t.Fatalf("prepare the fixture: %v", err)
 	}
-	platform := newSystem(dataDir, &stubAutostart{}, stubRunner{})
+	platform := newSystem(dataDir, &stubAutostart{}, &stubApplications{}, stubRunner{})
 
 	err := platform.EnsureDirs()
 	if err == nil {

@@ -6,6 +6,7 @@
  * duplicated by hand. Each helper unwraps the payload envelope so a failure
  * surfaces as a thrown `BoundCallError` with a stable `code`.
  */
+import * as AppsAPI from '@wails/go/desktop/AppsAPI'
 import * as BinaryAPI from '@wails/go/desktop/BinaryAPI'
 import * as ConfigAPI from '@wails/go/desktop/ConfigAPI'
 import * as ProfileAPI from '@wails/go/desktop/ProfileAPI'
@@ -19,6 +20,8 @@ import { unwrap } from './errors'
 
 export type {
   apperr,
+  applications,
+  apps,
   binary,
   config,
   desktop,
@@ -170,4 +173,9 @@ export const shareApi = {
 export const trafficApi = {
   snapshot: async (): Promise<desktop.TrafficPayload> =>
     unwrap(await TrafficAPI.GetTrafficSnapshot()),
+}
+
+/** AppsAPI — the programs a routing rule can select by name (ADR 011). */
+export const appsApi = {
+  list: async (): Promise<desktop.AppsPayload> => unwrap(await AppsAPI.ListApplications()),
 }

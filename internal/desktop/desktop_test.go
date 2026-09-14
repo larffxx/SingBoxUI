@@ -23,6 +23,7 @@ import (
 	"github.com/larffxx/singboxui/internal/app/share"
 	"github.com/larffxx/singboxui/internal/app/traffic"
 	"github.com/larffxx/singboxui/internal/domain/apperr"
+	"github.com/larffxx/singboxui/internal/domain/applications"
 	"github.com/larffxx/singboxui/internal/domain/profile"
 	domruntime "github.com/larffxx/singboxui/internal/domain/runtime"
 	domsettings "github.com/larffxx/singboxui/internal/domain/settings"
@@ -202,6 +203,7 @@ type fakePlatform struct {
 	info  platform.Info
 	paths platform.Paths
 	auto  *fakeAutostart
+	apps  platform.ApplicationCatalog
 	priv  *fakePrivilege
 
 	mu      sync.Mutex
@@ -213,6 +215,8 @@ func (p *fakePlatform) Info() platform.Info { return p.info }
 func (p *fakePlatform) Paths() platform.Paths { return p.paths }
 
 func (p *fakePlatform) Autostart() platform.Autostart { return p.auto }
+
+func (p *fakePlatform) Applications() platform.ApplicationCatalog { return p.apps }
 
 func (p *fakePlatform) PrivilegeRunner() privilege.Runner { return p.priv }
 
@@ -258,8 +262,29 @@ func newFakePlatform(t *testing.T, paths platform.Paths) *fakePlatform {
 		info:  platform.Info{OS: "darwin", Arch: "arm64", Supported: true},
 		paths: paths,
 		auto:  &fakeAutostart{supported: true},
+		apps:  &fakeApplications{},
 		priv:  &fakePrivilege{supported: false, reason: "privileged helper is not installed"},
 	}
+}
+
+// fakeApplications is a catalog with one application; a test that cares about
+// the listing replaces it (ADR 011).
+type fakeApplications struct {
+	supported bool
+	reason    string
+	items     []applications.Application
+	err       error
+}
+
+func (a *fakeApplications) Supported() bool { return a.supported }
+
+func (a *fakeApplications) UnsupportedReason() string { return a.reason }
+
+func (a *fakeApplications) List() ([]applications.Application, error) {
+	if a.err != nil {
+		return nil, a.err
+	}
+	return a.items, nil
 }
 
 // -- harness ------------------------------------------------------------------

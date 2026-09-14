@@ -15,7 +15,7 @@ import {
 } from '@tanstack/react-query'
 
 import { backendAvailable } from '@/app/queries'
-import { configApi, profilesApi, type config, type desktop } from '@/shared/api/bindings'
+import { appsApi, configApi, profilesApi, type config, type desktop } from '@/shared/api/bindings'
 import { keys } from '@/shared/api/keys'
 
 /** How many revisions the history list asks for. */
@@ -23,6 +23,20 @@ export const REVISION_LIMIT = 50
 
 function enabled(): boolean {
   return backendAvailable()
+}
+
+/**
+ * The applications of this machine (ADR 011). The listing only changes when the
+ * user installs something, so it is refreshed on an ordinary navigation rather
+ * than on every mount: the backend keeps its own shorter cache on top of this.
+ */
+export function useApplicationsQuery(): UseQueryResult<desktop.AppsPayload> {
+  return useQuery({
+    queryKey: keys.apps.list(),
+    queryFn: () => appsApi.list(),
+    enabled: enabled(),
+    staleTime: Number.POSITIVE_INFINITY,
+  })
 }
 
 export function useTemplatesQuery(): UseQueryResult<desktop.TemplatesPayload> {

@@ -136,7 +136,8 @@ make package-windows     # NSIS-установщик + подпись (на Wind
 - `docs/architecture/internal-contracts.md` — внутренние контракты пакетов;
 - `docs/architecture/frontend-workstreams.md` — контракт фронтенд-слоёв;
 - `docs/adr/` — принятые решения (Wails v2, архитектура Go, ревизии, supervisor,
-  граница привилегий, обновления, события, apply/rollback, стратегия тестов).
+  граница привилегий, обновления, события, apply/rollback, стратегия тестов,
+  значок в менюбаре, правила по приложениям на macOS).
 
 ## Лицензия
 
