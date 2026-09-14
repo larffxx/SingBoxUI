@@ -22,8 +22,20 @@ import (
 func denyTermination(t *testing.T) {
 	t.Helper()
 	previous := openForTermination
-	openForTermination = func(int) (windows.Handle, error) { return 0, windows.ERROR_ACCESS_DENIED }
+	openForTermination = func(int, uint32) (windows.Handle, error) { return 0, windows.ERROR_ACCESS_DENIED }
 	t.Cleanup(func() { openForTermination = previous })
+}
+
+// TestTreeStopAccessAsksForTheRightsTheStopNeeds pins the mask: a probe of the terminate
+// right alone answers "permitted" for a process at a higher integrity level, which is why
+// the fix that made an elevated core stoppable asks for the query right as well.
+func TestTreeStopAccessAsksForTheRightsTheStopNeeds(t *testing.T) {
+	if treeStopAccess&windows.PROCESS_TERMINATE == 0 {
+		t.Error("the stop does not ask for the right to end the process")
+	}
+	if treeStopAccess&windows.PROCESS_QUERY_INFORMATION == 0 {
+		t.Error("the stop does not ask for the right to identify the process, which taskkill asks for too")
+	}
 }
 
 func TestMayTerminateSeesAProcessThatIsGone(t *testing.T) {

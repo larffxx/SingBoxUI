@@ -15,7 +15,7 @@
   "info": {
     "companyName": "larffxx",
     "productName": "SingBoxUI",
-    "productVersion": "0.3.10",
+    "productVersion": "0.3.11",
     "copyright": "MIT",
     "comments": "Native sing-box configuration, runtime control and diagnostics."
   }

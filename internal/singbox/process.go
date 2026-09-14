@@ -2,12 +2,7 @@ package singbox
 
 import (
 	"context"
-	"encoding/csv"
-	"errors"
-	"io"
 	"os"
-	"os/exec"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,9 +16,10 @@ import (
 //
 // A `sing-box check` shares the executable name but neither the TUN device nor
 // the ports, so processes that were not launched to run a configuration are left
-// out: refusing to start because a check is running would be wrong. Windows is
-// the exception — tasklist cannot show arguments, so every sing-box process is
-// reported there.
+// out: refusing to start because a check is running would be wrong. Each platform
+// answers that question its own way (process_posix.go, process_windows.go), and
+// both read the argument vector of the candidates, so the filter is the same one
+// on every machine.
 //
 // It deliberately reports every running sing-box process it can see, including
 // any this application started: only the runtime supervisor knows its own PIDs,
@@ -33,20 +29,7 @@ import (
 // devices, ports and the routing table.
 func Foreign(ctx context.Context) ([]int, error) {
 	const op = "singbox.Foreign"
-	name := strings.TrimSuffix(ExecutableName(runtime.GOOS), ".exe")
-
-	var (
-		pids []int
-		err  error
-	)
-	switch runtime.GOOS {
-	case "windows":
-		pids, err = foreignPIDsWindows(ctx, name+".exe")
-	default:
-		// darwin and linux both ship pgrep, which matches on the executable's
-		// name and needs no privileges to see other users' processes.
-		pids, err = foreignPIDsPgrep(ctx, name)
-	}
+	pids, err := foreignPIDs(ctx)
 	if err != nil {
 		return nil, apperr.Wrap(apperr.CodeInternal, op,
 			"cannot enumerate sing-box processes", err)
@@ -68,54 +51,14 @@ func Foreign(ctx context.Context) ([]int, error) {
 	return out, nil
 }
 
-// foreignPIDsPgrep asks pgrep for processes whose executable is named name, then
-// keeps the ones that are running a configuration.
-func foreignPIDsPgrep(ctx context.Context, name string) ([]int, error) {
-	cmd := exec.CommandContext(ctx, "pgrep", "-x", name)
-	var stdout, stderr strings.Builder
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	cmd.Stdin = nil
-
-	err := cmd.Run()
-	if err != nil {
-		// pgrep exits 1 when nothing matched, which is not a failure: an empty
-		// result is the normal answer on a clean machine.
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			if exitErr.ExitCode() == 1 {
-				return nil, nil
-			}
-			return nil, apperr.Newf(apperr.CodeInternal, "singbox.Foreign",
-				"pgrep failed: %s", strings.TrimSpace(stderr.String()))
-		}
-		return nil, err
-	}
-	candidates := parsePIDLines(stdout.String())
-	out := make([]int, 0, len(candidates))
-	for _, pid := range candidates {
-		if runningConfiguration(ctx, pid) {
-			out = append(out, pid)
-		}
-	}
-	return out, nil
-}
-
-// runningConfiguration reports whether a process was launched to run a
-// configuration, which is what the command line says: `sing-box run -c …`.
+// runningConfigurationArgs reports whether an argument vector belongs to a
+// process that was launched to run a configuration, which is what the command
+// line says: `sing-box run -c …`.
 //
 // A command line that cannot be read is treated as running a configuration: a
 // process the application cannot inspect is one it must not assume to be
 // harmless, and reporting it too much only produces a warning.
-func runningConfiguration(ctx context.Context, pid int) bool {
-	cmd := exec.CommandContext(ctx, "ps", "-o", "command=", "-p", strconv.Itoa(pid))
-	var stdout strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stdin = nil
-	if err := cmd.Run(); err != nil {
-		return true
-	}
-	return hasRunArgument(strings.Fields(stdout.String()))
-}
+func runningConfigurationArgs(fields []string) bool { return hasRunArgument(fields) }
 
 // hasRunArgument reports whether an argument vector contains the `run`
 // subcommand. Arguments are compared whole, so a path or a flag value that
@@ -127,45 +70,6 @@ func hasRunArgument(fields []string) bool {
 		}
 	}
 	return false
-}
-
-// foreignPIDsWindows asks tasklist for processes whose image is name.
-//
-// tasklist is part of every supported Windows install, so this needs no
-// dependency and no elevation; its CSV output is the only dependable format.
-func foreignPIDsWindows(ctx context.Context, name string) ([]int, error) {
-	cmd := exec.CommandContext(ctx, "tasklist", "/FI", "IMAGENAME eq "+name, "/FO", "CSV", "/NH")
-	var stdout, stderr strings.Builder
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	cmd.Stdin = nil
-
-	if err := cmd.Run(); err != nil && !isExitError(err) {
-		return nil, err
-	}
-	raw := strings.TrimSpace(stdout.String())
-	if raw == "" || strings.HasPrefix(strings.ToUpper(raw), "INFO:") {
-		// "INFO: No tasks are running which match the specified criteria."
-		return nil, nil
-	}
-	reader := csv.NewReader(strings.NewReader(raw))
-	reader.FieldsPerRecord = -1
-	var pids []int
-	for {
-		record, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil || len(record) < 2 {
-			// A malformed row is not worth failing the whole check over.
-			continue
-		}
-		pid, err := strconv.Atoi(strings.TrimSpace(record[1]))
-		if err != nil {
-			continue
-		}
-		pids = append(pids, pid)
-	}
-	return pids, nil
 }
 
 // parsePIDLines reads one PID per line, skipping anything unparsable so a stray

@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"testing"
 	"time"
@@ -23,9 +22,6 @@ func containsInt(values []int, want int) bool {
 }
 
 func TestForeignReportsTheFixtureProcess(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("process enumeration on Windows uses tasklist, which the fixture cannot exercise")
-	}
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "pid")
 	// The trailing "run" makes the fixture look like the process the adapter is
@@ -61,9 +57,6 @@ func TestForeignReportsTheFixtureProcess(t *testing.T) {
 }
 
 func TestForeignStopsWithTheContext(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("process enumeration on Windows uses tasklist, which the fixture cannot exercise")
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -74,26 +67,12 @@ func TestForeignStopsWithTheContext(t *testing.T) {
 	}
 }
 
-func TestForeignIgnoresProcessesWithAnotherName(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the pgrep path only exists on darwin and linux")
-	}
-	// pgrep exits 1 when nothing matches; that is an empty result, not a failure.
-	pids, err := foreignPIDsPgrep(context.Background(), "singbox-definitely-not-running-4242")
-	if err != nil {
-		t.Fatalf("foreignPIDsPgrep() failed: %v", err)
-	}
-	if len(pids) != 0 {
-		t.Errorf("foreignPIDsPgrep() = %v, want no processes", pids)
-	}
-}
-
 func TestForeignIgnoresAProcessThatIsNotRunningAConfiguration(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("tasklist cannot show arguments, so Windows reports every sing-box process")
-	}
 	// `sing-box check` — or any other subcommand — holds neither the TUN device
-	// nor the ports, so it must not make the application refuse to start.
+	// nor the ports, so it must not make the application refuse to start. Every
+	// platform reads the argument vector to tell them apart: `ps` on POSIX, and
+	// NtQueryInformationProcess on Windows, where the fixture is a copy of the
+	// test binary named sing-box.exe, so tasklist can see it too.
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "pid")
 	process := startFake(t, "-scenario", faketest.ScenarioRunForeign, "-pid-file", pidFile, "check")

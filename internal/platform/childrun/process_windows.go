@@ -109,8 +109,21 @@ func taskkill(pid int, force bool) error {
 	return nil
 }
 
-// mayTerminate reports whether this process may end pid, before anything is
-// attempted.
+// treeStopAccess is what ending a process needs on this platform: `taskkill` identifies the
+// process before it ends it, so it asks for the terminate right *and* the full query right.
+//
+// Both are asked for because one of them is granted where the other is refused: Windows
+// answers `permitted` to a probe of PROCESS_TERMINATE alone for a process that runs at a
+// higher integrity level — this application's own core, started as administrator — and
+// refuses the same probe the moment PROCESS_QUERY_INFORMATION is included. Measured on
+// Windows 11 against such a core: the terminate right alone opened it, while
+// PROCESS_TERMINATE|PROCESS_QUERY_INFORMATION (and PROCESS_ALL_ACCESS) answered
+// "Access is denied", which is exactly what `taskkill` reports for it. A probe of the
+// terminate right alone therefore says "allowed" about a process this application cannot end.
+const treeStopAccess = windows.PROCESS_TERMINATE | windows.PROCESS_QUERY_INFORMATION
+
+// mayTerminate reports whether this process may end pid the way this platform
+// ends processes, before anything is attempted.
 //
 // It answers ErrNotPermitted for a process the user may not touch — which on
 // Windows is every process that runs at a higher integrity level, including this
@@ -127,7 +140,7 @@ func mayTerminate(pid int) error {
 	if pid <= 0 {
 		return fmt.Errorf("childrun: invalid pid %d", pid)
 	}
-	handle, err := openForTermination(pid)
+	handle, err := openForTermination(pid, treeStopAccess)
 	if err == nil {
 		windows.CloseHandle(handle)
 		return nil
@@ -142,11 +155,11 @@ func mayTerminate(pid int) error {
 	}
 }
 
-// openForTermination asks the kernel for the right to end a process. It is a
+// openForTermination asks the kernel for the rights a stop needs. It is a
 // variable so that the suite can exercise the refusal the kernel produces for an
 // elevated process, which a test running as the current user cannot create.
-var openForTermination = func(pid int) (windows.Handle, error) {
-	return windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid))
+var openForTermination = func(pid int, access uint32) (windows.Handle, error) {
+	return windows.OpenProcess(access, false, uint32(pid))
 }
 
 // configureChild detaches the child from the UI's console and gives it its own

@@ -46,8 +46,12 @@ loudly instead of quietly.
 * **Named by the search.** `singbox.Foreign` is now filtered to processes that were launched to run
   a configuration (`sing-box run …`) by reading their command line: a `sing-box check` shares the
   executable name but neither the TUN device nor the ports, so it must never make the application
-  refuse to start. On Windows `tasklist` cannot show arguments, so every sing-box process is
-  reported there — documented, not hidden.
+  refuse to start. Each platform reads the argument vector its own way — `ps` on POSIX, and
+  `NtQueryInformationProcess(ProcessCommandLineInformation)` on Windows, where `tasklist` reports
+  image names only and the CIM route answers with an empty command line for exactly the process that
+  matters (the core the application itself starts as administrator). The call needs the limited query
+  right that Windows grants for every process, so the filter is the same one on every machine and no
+  process is reported merely for being unreadable.
 * **Stoppable through the same narrow helper.** The `privilege.Runner` port gains one operation,
   `Stop(ctx, pidPath, force)`. `privrun.Runner.Stop` first tries to signal the process with the
   rights the application already has — an unelevated core then needs no elevation prompt — and
@@ -111,19 +115,59 @@ helper and the runtime screen could not stop a core the application had itself s
 (internal-contracts.md §3). The feature of this ADR was therefore missing exactly where the application
 is used.
 
-`childrun` now asks the kernel before it signals anything: `OpenProcess(PROCESS_TERMINATE)` is the
-question, `ERROR_ACCESS_DENIED` is `ErrNotPermitted`, a pid that owns no process is `ErrProcessGone`,
-and the text `taskkill` prints is no longer read for a reason. The order is unchanged — the direct
-attempt stays the fast path for a core this user owns, and the helper is asked only after the refusal.
-Because the answer is now the kernel's, the fast path is used whenever the kernel grants it: measured on
-Windows 11, a core running as administrator and owned by the same user *is* openable for termination
-from the unprivileged application, so a leftover core is stopped without an elevation prompt; the
-escalation covers the processes this user may not touch at all, which the same probe refuses
-(`OpenProcess(PROCESS_TERMINATE)` on a `SYSTEM` process answers `ERROR_ACCESS_DENIED`).
+`childrun` now asks the kernel before it signals anything: `OpenProcess` is the question,
+`ERROR_ACCESS_DENIED` is `ErrNotPermitted`, a pid that owns no process is `ErrProcessGone`, and the
+text `taskkill` prints is no longer read for a reason. The order is unchanged — the direct attempt
+stays the fast path for a core this user owns, and the helper is asked only after the refusal.
+
+The rights asked for are the rights the stop needs, and that first proved to be the difference between
+a probe that answers and a probe that works. `taskkill /T /F` identifies a process before it ends it,
+so it asks for `PROCESS_TERMINATE` *and* `PROCESS_QUERY_INFORMATION`; asking for the terminate right
+alone answers `permitted` for a process at a higher integrity level and the stop then fails with the
+`Access is denied` this amendment set out to replace — which is what happened on a real machine:
+
+    childrun: taskkill 31760 (/PID 31760 /T /F): exit status 128:
+    ERROR: The process with PID 31760 (child process of PID 6900) could not be terminated. Reason: Access is denied.
+
+Measured on Windows 11 against a core running as administrator, from the unprivileged application:
+`PROCESS_TERMINATE` alone opened it, while `PROCESS_TERMINATE|PROCESS_QUERY_INFORMATION` and
+`PROCESS_ALL_ACCESS` both answered `Access is denied` — the mask `taskkill` uses is refused for exactly
+the core Windows needs elevation to start, so the escalation is what stops it, not the fast path. A
+process of this user that is *not* elevated answers `permitted` to the same mask, so the fast path
+remains the common case and no elevation prompt appears for a core this user started without one; a
+`SYSTEM` process is refused, as before.
 
 Verified on Windows: a start-and-exit pid answers `ErrProcessGone`; the production helper binary, built
-as it ships, ends a recorded process and reports it (`singboxui-priv: stopped pid …`); the refusal is
-injected through the same variable the implementation uses (`openForTermination`) and asserted to reach
-the caller untouched, which is the contract the escalation acts on; and the process a refusal describes
-is left running. What the suite cannot create for itself is an elevation prompt, so the escalated stop
-itself is covered by the helper's own tests and by the machine.
+as it ships, ends a recorded process and reports it (`singboxui-priv: stopped pid …`), including the
+elevated core that produced the failure above; the mask is pinned by a test that fails if the query
+right is dropped again; the refusal is injected through the same variable the implementation uses
+(`openForTermination`) and asserted to reach the caller untouched, which is the contract the escalation
+acts on; and the process a refusal describes is left running. What the suite cannot create for itself
+is an elevation prompt, so the escalated stop itself is covered by the helper's own tests and by the
+machine.
+
+## Amendment — the search reads command lines on Windows too
+
+The filter of the decision above ("a `sing-box check` must never make the application refuse to start")
+was written for POSIX, where `ps` answers with the argument vector. On Windows the search stopped at
+`tasklist`, which reports image names only, and the amendment to the code that made the mask right left
+that open: the application's own binary probe — `sing-box check` and `sing-box version`, run by the
+binary adapter at startup — was reported as a foreign core, and a start was refused with
+`RUNTIME_ALREADY_RUNNING` because of a process that held neither the TUN device nor a port. It was
+observed on a real machine, in the log of an auto-connect that gave up on exactly that:
+
+    sing-box (pid 13048) is running a configuration that SingBoxUI did not start: stop it and start again
+
+`NtQueryInformationProcess(ProcessCommandLineInformation)` answers with the full command line of any
+process, including one running as administrator, and needs nothing but
+`PROCESS_QUERY_LIMITED_INFORMATION`, which Windows grants for every process of every user. The Windows
+enumeration therefore reads each candidate's command line and applies the same `run` filter as POSIX
+does, in the same package, with the platform difference confined to the two files that do the reading
+(`process_posix.go`, `process_windows.go`). `Get-CimInstance Win32_Process` is *not* an alternative: it
+answers with an empty command line for the elevated core, which is the process the filter has to judge.
+
+Verified on Windows: the fixture (a copy of the test binary named `sing-box.exe`, so `tasklist` sees it
+like any core) is enumerated when it is started with `run` and left out when it is started with `check`,
+and both tests run on that platform now instead of being skipped; the command line of a live process is
+read and asserted against the arguments the fixture was started with; a pid that cannot exist answers an
+error rather than an empty line; and the full local suite passes with the same result as before.
