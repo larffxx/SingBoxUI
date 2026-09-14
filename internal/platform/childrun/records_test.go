@@ -14,8 +14,9 @@ import (
 // ADR 012 makes the difference between "the pid is alive" and "our process is
 // running" the difference between a correct refusal and a wrong one.
 
-// startSleep starts a process that stays alive for the test.
-func startSleep(t *testing.T) (int, time.Time) {
+// startFixtureProcess starts a process that stays alive for the duration of the
+// test, on whichever operating system the suite runs.
+func startFixtureProcess(t *testing.T) *exec.Cmd {
 	t.Helper()
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
@@ -30,30 +31,32 @@ func startSleep(t *testing.T) (int, time.Time) {
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
 	})
+	return cmd
+}
+
+// fixtureRecord describes a live fixture process the way a launch records one.
+func fixtureRecord(t *testing.T, cmd *exec.Cmd) PIDFile {
+	t.Helper()
 	start, err := StartTimeNano(cmd.Process.Pid)
 	if err != nil {
 		t.Fatalf("StartTimeNano: %v", err)
 	}
-	return cmd.Process.Pid, time.Unix(0, start)
+	return PIDFile{PID: cmd.Process.Pid, StartTime: start, RecordedAt: time.Now().UTC()}
 }
 
 func TestPIDFileMatchesTheProcessItDescribes(t *testing.T) {
-	pid, startedAt := startSleep(t)
-	start, err := StartTimeNano(pid)
-	if err != nil {
-		t.Fatalf("StartTimeNano: %v", err)
-	}
-	record := PIDFile{PID: pid, StartTime: start, RecordedAt: startedAt}
+	cmd := startFixtureProcess(t)
 
-	if !record.Matches() {
+	if !fixtureRecord(t, cmd).Matches() {
 		t.Error("Matches() = false for the process the record describes")
 	}
 }
 
 func TestPIDFileDoesNotMatchARecycledPID(t *testing.T) {
-	pid, _ := startSleep(t)
-	// A record written for another process that once had this pid.
-	record := PIDFile{PID: pid, StartTime: time.Now().Add(-24 * time.Hour).UnixNano()}
+	cmd := startFixtureProcess(t)
+	record := fixtureRecord(t, cmd)
+	// The same pid, one day earlier: the process the pid belonged to is gone.
+	record.StartTime = time.Now().Add(-24 * time.Hour).UnixNano()
 
 	if record.Matches() {
 		t.Error("Matches() = true for a pid that was recycled")
@@ -61,21 +64,14 @@ func TestPIDFileDoesNotMatchARecycledPID(t *testing.T) {
 }
 
 func TestPIDFileDoesNotMatchAProcessThatIsGone(t *testing.T) {
-	cmd := exec.Command("/bin/sleep", "30")
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("cannot start the fixture process: %v", err)
-	}
-	pid := cmd.Process.Pid
-	start, err := StartTimeNano(pid)
-	if err != nil {
-		t.Fatalf("StartTimeNano: %v", err)
-	}
+	cmd := startFixtureProcess(t)
+	record := fixtureRecord(t, cmd)
 	if err := cmd.Process.Kill(); err != nil {
 		t.Fatalf("cannot kill the fixture process: %v", err)
 	}
 	_, _ = cmd.Process.Wait()
 
-	if (PIDFile{PID: pid, StartTime: start}).Matches() {
+	if record.Matches() {
 		t.Error("Matches() = true for a process that exited")
 	}
 	if (PIDFile{}).Matches() {
@@ -85,37 +81,26 @@ func TestPIDFileDoesNotMatchAProcessThatIsGone(t *testing.T) {
 
 func TestPIDFileDoesNotMatchAProcessThatHasNotBeenReaped(t *testing.T) {
 	// A process that exited but whose parent has not waited for it is not
-	// running: right after a stop, the record still describes the pid the kernel
-	// has not yet released, and calling that a running core would refuse the next
+	// running: right after a stop, the record still describes a pid the kernel
+	// has not released, and calling that a running core would refuse the next
 	// start.
-	cmd := exec.Command("/bin/sleep", "30")
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("cannot start the fixture process: %v", err)
-	}
-	pid := cmd.Process.Pid
-	start, err := StartTimeNano(pid)
-	if err != nil {
-		t.Fatalf("StartTimeNano: %v", err)
-	}
+	cmd := startFixtureProcess(t)
+	record := fixtureRecord(t, cmd)
 	if err := cmd.Process.Kill(); err != nil {
 		t.Fatalf("cannot kill the fixture process: %v", err)
 	}
 	// The signal has to be delivered before the process stops being one: wait
-	// for it to reach the state a parent has not reaped yet.
+	// for it to reach the unreaped state.
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if !Alive(pid) {
-			break
-		}
+	for time.Now().Before(deadline) && Alive(record.PID) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if Alive(pid) {
+	if Alive(record.PID) {
 		t.Skip("the fixture did not reach the unreaped state in time")
 	}
-	if (PIDFile{PID: pid, StartTime: start}).Matches() {
+	if record.Matches() {
 		t.Error("Matches() = true for a process that exited and was not reaped")
 	}
-	_, _ = cmd.Process.Wait()
 }
 
 func TestReadPIDFileRefusesAnIncompleteRecord(t *testing.T) {
