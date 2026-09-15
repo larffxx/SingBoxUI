@@ -74,6 +74,22 @@ const windowsPayload = {
   },
 }
 
+/** A machine with more programs than the list shows before it offers to unfold. */
+const manyPayload = {
+  apps: {
+    supported: true,
+    reason: '',
+    applications: Array.from({ length: 7 }, (_, index) => ({
+      name: `Program ${index + 1}`,
+      bundleId: '',
+      path: `/Applications/Program${index + 1}.app`,
+      executable: `Program${index + 1}`,
+      matchKey: 'process_path_regex',
+      matchValue: `^/Applications/Program${index + 1}\\\\.app/`,
+    })),
+  },
+}
+
 const mocks = vi.hoisted(() => ({ list: vi.fn() }))
 
 vi.mock('@/shared/api/bindings', () => ({
@@ -139,7 +155,92 @@ beforeEach(() => {
 })
 
 describe('applications card', () => {
-  it('writes a rule that selects the application, not an address', async () => {
+  it('shows every application as going through the tunnel by default', async () => {
+    // The configuration routes everything through the tunnel (route.final = proxy-vless), so the
+    // absence of a rule means "через VPN" and not "не задано": a rule is the exception.
+    await renderCard(baseDocument())
+
+    for (const name of ['Telegram', 'Discord']) {
+      const row = screen.getByRole('group', { name })
+      expect(within(row).getByRole('button', { name: 'Через VPN' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+      expect(within(row).getByRole('button', { name: 'Напрямую' })).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      )
+    }
+  })
+
+  it('shows an application the user routed directly as direct, and the rest as through the tunnel', async () => {
+    await renderCard(
+      baseDocument([{ action: 'route', outbound: 'direct', process_path_regex: [DISCORD] }]),
+    )
+
+    const telegram = screen.getByRole('group', { name: 'Telegram' })
+    const discord = screen.getByRole('group', { name: 'Discord' })
+    expect(within(telegram).getByRole('button', { name: 'Через VPN' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(within(discord).getByRole('button', { name: 'Напрямую' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
+  it('reads the default from the configuration when the final is not the tunnel', async () => {
+    // A profile that routes everything directly (the TUN-basic starter, say): the row
+    // says "напрямую" until the program gets a rule of its own — and «Через VPN» is how
+    // a program is taken *into* the tunnel there.
+    const user = userEvent.setup({ delay: null })
+    const directFinal: JsonObject = {
+      outbounds: [
+        { type: 'vless', tag: 'proxy-vless' },
+        { type: 'direct', tag: 'direct' },
+      ],
+      route: { final: 'direct', rules: [] },
+    }
+    const onChange = await renderCard(directFinal)
+
+    const row = screen.getByRole('group', { name: 'Telegram' })
+    expect(within(row).getByRole('button', { name: 'Напрямую' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    await user.click(within(row).getByRole('button', { name: 'Через VPN' }))
+    expect(rulesOf(lastDocument(onChange))).toEqual([
+      { action: 'route', outbound: 'proxy-vless', process_path_regex: [TELEGRAM] },
+    ])
+    expect(within(row).getByRole('button', { name: 'Через VPN' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
+  it('shows five applications and unfolds the rest on demand', async () => {
+    mocks.list.mockResolvedValue(manyPayload)
+    const user = userEvent.setup({ delay: null })
+    await renderCard(baseDocument(), 'Program 1')
+
+    // Five rows, and a button that names how many there are in total.
+    expect(screen.getAllByRole('group')).toHaveLength(5)
+    expect(screen.queryByText('Program 6')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Показать все (7)' }))
+
+    expect(screen.getAllByRole('group')).toHaveLength(7)
+    expect(screen.getByText('Program 7')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Свернуть' }))
+    expect(screen.getAllByRole('group')).toHaveLength(5)
+  })
+
+  it('writes no rule for an application that already follows the configuration default', async () => {
+    // The configuration routes everything through the tunnel, so pressing "Через VPN"
+    // on a program without a rule asks for what is already true: nothing is written.
     const user = userEvent.setup({ delay: null })
     const onChange = await renderCard(baseDocument())
 
@@ -149,8 +250,21 @@ describe('applications card', () => {
       }),
     )
 
+    expect(rulesOf(lastDocument(onChange))).toEqual([])
+  })
+
+  it('writes a rule that selects the application, not an address', async () => {
+    const user = userEvent.setup({ delay: null })
+    const onChange = await renderCard(baseDocument())
+
+    await user.click(
+      within(screen.getByRole('group', { name: 'Telegram' })).getByRole('button', {
+        name: 'Напрямую',
+      }),
+    )
+
     expect(rulesOf(lastDocument(onChange))).toEqual([
-      { action: 'route', outbound: 'proxy-vless', process_path_regex: [TELEGRAM] },
+      { action: 'route', outbound: 'direct', process_path_regex: [TELEGRAM] },
     ])
   })
 
@@ -163,12 +277,12 @@ describe('applications card', () => {
 
     await user.click(
       within(screen.getByRole('group', { name: 'Google Chrome' })).getByRole('button', {
-        name: 'Через VPN',
+        name: 'Напрямую',
       }),
     )
 
     expect(rulesOf(lastDocument(onChange))).toEqual([
-      { action: 'route', outbound: 'proxy-vless', process_name: ['chrome.exe'] },
+      { action: 'route', outbound: 'direct', process_name: ['chrome.exe'] },
     ])
     expect(screen.getByText(/process_name/)).toBeInTheDocument()
   })
@@ -186,9 +300,23 @@ describe('applications card', () => {
         process_path_regex: [DISCORD],
       },
     ])
+    expect(within(row).getByRole('button', { name: 'Напрямую' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
 
     await user.click(within(row).getByRole('button', { name: 'Напрямую' }))
     expect(rulesOf(lastDocument(onChange))).toEqual([])
+    // Removing the exception puts the program back on the configuration's default,
+    // which is the tunnel — the row says so.
+    expect(within(row).getByRole('button', { name: 'Через VPN' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(within(row).getByRole('button', { name: 'Напрямую' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
   })
 
   it('shows the state the document describes', async () => {

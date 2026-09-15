@@ -42,9 +42,17 @@ import type { DocTabProps } from './types'
 /** The outbound a new rule sends through the tunnel unless the user chooses one. */
 function defaultProxyOutbound(route: JsonObject, outboundTags: string[]): string {
   const outbound = getString(route, 'final')
-  if (outbound !== '' && outbound !== 'direct' && outbound !== 'block') return outbound
-  return outboundTags.find((tag) => tag !== 'direct' && tag !== 'block') ?? ''
+  if (isProxyTag(outbound)) return outbound
+  return outboundTags.find((tag) => isProxyTag(tag)) ?? ''
 }
+
+/** isProxyTag reports whether a tag names an outbound the card can send traffic through. */
+function isProxyTag(tag: string): boolean {
+  return tag !== '' && tag !== 'direct' && tag !== 'block'
+}
+
+/** How many applications the list shows before it offers to unfold. */
+const COLLAPSED_ROWS = 5
 
 /** matchesFilter reports whether one program answers to the search box. */
 function matchesFilter(query: string, needles: string[]): boolean {
@@ -63,6 +71,13 @@ export function ApplicationsCard({ root, onChange }: DocTabProps) {
   const [proxy, setProxy] = React.useState('')
   const [filter, setFilter] = React.useState('')
   const [onlyMarked, setOnlyMarked] = React.useState(false)
+  const [expanded, setExpanded] = React.useState(false)
+
+  // A new search is a new list: the unfolded state of the previous one would only
+  // make the answer harder to read.
+  React.useEffect(() => {
+    setExpanded(false)
+  }, [filter, onlyMarked])
 
   const route = getObject(root, 'route')
   const rules = getArray(route, 'rules')
@@ -97,25 +112,40 @@ export function ApplicationsCard({ root, onChange }: DocTabProps) {
     setRules(setAppRoute(rules, condition, target, proxyOutbound))
   }
 
+  // Every application already has a direction: the one the configuration gives it. `route.final`
+  // decides what a program without a rule does, so the row shows that as the current state — with
+  // the tunnel as the final, "через VPN" is the default and a rule is the exception; with a
+  // direct final (the TUN-basic starter, say) the default is "напрямую" and a rule is how a
+  // program is taken *into* the tunnel.
+  const defaultTarget: AppTarget = isProxyTag(getString(route, 'final')) ? 'proxy' : 'direct'
+  const targetOf = (condition: AppCondition): AppTarget => {
+    const explicit = appRuleTarget(rules, condition)
+    return explicit === 'off' ? defaultTarget : explicit
+  }
+
   // A program the backend could not describe with a condition cannot be routed
   // from here: the rule editor is the tool for it.
   const described = list.applications.filter((app) => app.matchKey !== '' && app.matchValue !== '')
   const applications = described.filter((app) =>
     matchesFilter(filter, [app.name, app.bundleId, app.executable, app.path]),
   )
+  // "Отмеченные" means the applications the user gave a rule of their own: everything else
+  // follows the configuration's default and needs no entry.
   const visible = onlyMarked
     ? applications.filter((app) => appRuleTarget(rules, entryCondition(app)) !== 'off')
     : applications
   const conditionKey = described[0]?.matchKey ?? ''
+  const shown = expanded ? visible : visible.slice(0, COLLAPSED_ROWS)
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Приложения</CardTitle>
         <CardDescription>
-          Отметьте, что должно идти через VPN, а что напрямую — правило выберет программу по ней
-          самой, а не по домену или адресу. Правила применяются по порядку, поэтому новое правило
-          добавляется в конец списка ниже.
+          В конфигурации весь трафик идёт через VPN, поэтому каждая программа по умолчанию — «через
+          VPN». Здесь отмечают исключения: «Напрямую» — для программ, которым нужен прямой выход.
+          Правило выбирает программу по ней самой, а не по домену или адресу; правила применяются по
+          порядку, поэтому новое добавляется в конец списка ниже.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -140,7 +170,7 @@ export function ApplicationsCard({ root, onChange }: DocTabProps) {
                 hint={
                   proxyOutbound === ''
                     ? 'В конфигурации нет outbound, кроме direct — добавьте прокси на вкладке Outbounds.'
-                    : 'Куда уходит трафик отмеченных приложений.'
+                    : 'Куда уходит трафик программ, отмеченных «через VPN».'
                 }
               >
                 <Select
@@ -174,20 +204,20 @@ export function ApplicationsCard({ root, onChange }: DocTabProps) {
                   setOnlyMarked(event.target.checked)
                 }}
               />
-              Показывать только отмеченные
+              Показывать только с правилом
             </label>
 
             {visible.length === 0 ? (
               <Alert tone="info" title="Ничего не найдено">
                 {onlyMarked
-                  ? 'Ни одному приложению ещё не назначен маршрут.'
+                  ? 'Ни одной программе не назначено своё правило: все идут через VPN, как в конфигурации.'
                   : 'Ни одна программа не подошла под запрос.'}
               </Alert>
             ) : (
               <ul className="divide-y rounded-md border">
-                {visible.map((app) => {
+                {shown.map((app) => {
                   const condition = entryCondition(app)
-                  const target = appRuleTarget(rules, condition)
+                  const target = targetOf(condition)
                   return (
                     <li
                       key={app.path}
@@ -229,6 +259,19 @@ export function ApplicationsCard({ root, onChange }: DocTabProps) {
                 })}
               </ul>
             )}
+
+            {visible.length > COLLAPSED_ROWS ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setExpanded(!expanded)
+                }}
+              >
+                {expanded ? 'Свернуть' : `Показать все (${visible.length})`}
+              </Button>
+            ) : null}
 
             {conditionKey === '' ? null : (
               <p className="text-xs text-muted-foreground">
