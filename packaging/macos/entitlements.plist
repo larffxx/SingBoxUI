@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Outbound connections to the sing-box API, proxies and subscription URLs. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- Local listeners and the loopback control surface used by the app. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+
+	<!-- Import/export of configuration files chosen by the user via file dialogs. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+
+	<!-- Launching the narrow privileged helper via osascript (ADR 005). -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+
+	<!-- Monaco Editor / JIT in the embedded webview requires no extra JIT grant,
+	     so allow-jit stays disabled. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<false/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<false/>
+</dict>
+</plist>

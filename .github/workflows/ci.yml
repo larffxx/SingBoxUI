@@ -1,0 +1,222 @@
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+  # Reused by .github/workflows/release.yml so a release can never bypass tests.
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.27.x'
+  NODE_VERSION: '22'
+  WAILS_VERSION: 'v2.15.0'
+
+jobs:
+  go:
+    # The application only targets Windows and macOS, and the platform adapters
+    # are build-constrained per OS, so the suite runs on the platform we ship.
+    name: Go — test, race, vet, staticcheck, cross-compile
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # First-party packages only: `./...` also walks frontend/node_modules,
+      # where some npm packages ship Go sources (flatted does), so the pipeline
+      # would build and test code this repository does not own.
+      - name: go test
+        run: go test . ./cmd/... ./internal/...
+
+      - name: go test -race
+        run: go test -race . ./cmd/... ./internal/...
+
+      - name: go vet
+        run: go vet . ./cmd/... ./internal/...
+
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          "$(go env GOPATH)/bin/staticcheck" . ./cmd/... ./internal/...
+
+      - name: gofmt check
+        run: |
+          unformatted="$(gofmt -l internal cmd main.go)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt required for:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: cross-compile the Windows targets
+        run: |
+          GOOS=windows GOARCH=amd64 go build . ./cmd/... ./internal/...
+          GOOS=windows GOARCH=arm64 go build . ./cmd/... ./internal/...
+
+      - name: Linux stays an explicit unsupported target
+        run: GOOS=linux GOARCH=amd64 go build ./internal/platform/...
+
+  go-windows:
+    # The Windows side of the application — the platform adapter, the privileged
+    # helper, the elevation call, every path that crosses the privilege boundary —
+    # only ever runs on a Windows machine, and cross-compiling proves that it
+    # compiles, nothing more. A path built with a literal "/" is legal on macOS and
+    # refused by Windows, so the suite runs there as well: without this job a
+    # Windows-only defect is found by the first user who installs a release.
+    name: Go — test and vet on Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: go test
+        run: go test . ./cmd/... ./internal/...
+
+      - name: go vet
+        run: go vet . ./cmd/... ./internal/...
+
+  frontend:
+    name: Frontend — lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci
+        run: npm ci --no-audit --no-fund
+
+      - name: npm run format:check
+        run: npx prettier --check .
+
+      - name: npm run lint
+        run: npm run lint
+
+      - name: npm run typecheck
+        run: npm run typecheck
+
+      - name: npm test
+        run: npm test
+
+      - name: npm run build
+        run: npm run build
+
+      - name: Upload web assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  e2e:
+    name: Frontend — Playwright application-level flows
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci
+        run: npm ci --no-audit --no-fund
+
+      # Only Chromium: the config declares a single Chromium project, and the
+      # other engines would add minutes to every run for coverage we do not use.
+      - name: Install the Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: npm run e2e
+        run: npm run e2e
+
+  wails:
+    name: Wails build (macOS bundle + privileged helper)
+    runs-on: macos-latest
+    needs: [go, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Regenerated bindings must already be committed
+        run: |
+          wails generate module
+          # Contents only: the generator rewrites the runtime files in place, so a
+          # formatter run or a local umask can flip their executable bit and fail
+          # this gate with a diff that carries no change.
+          out_of_date="$(git -c core.fileMode=false status --porcelain -- frontend/wailsjs)"
+          if [ -n "$out_of_date" ]; then
+            echo "frontend/wailsjs is out of date: run 'make bindings' and commit the result."
+            echo "$out_of_date"
+            exit 1
+          fi
+
+      - name: Build the app bundle and inject the privileged helper
+        run: bash scripts/build.sh -clean
+
+      - name: Verify bundle
+        run: |
+          ls -la build/bin
+          app="$(find build/bin -maxdepth 1 -name '*.app' -print -quit)"
+          [ -n "$app" ] || { echo "no .app bundle produced"; exit 1; }
+          test -x "$app/Contents/MacOS/singboxui-priv" \
+            || { echo "privileged helper missing from $app/Contents/MacOS"; exit 1; }
+          plutil -p "$app/Contents/Info.plist" | grep -q 'com.larffxx.singboxui' \
+            || { echo "unexpected CFBundleIdentifier"; exit 1; }
+
+      - name: Upload app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: singboxui-macos-dev
+          path: build/bin/*.app
+          if-no-files-found: error
+          retention-days: 7

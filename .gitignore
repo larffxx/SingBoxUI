@@ -1,0 +1,48 @@
+### Go ###
+/singboxui
+/singboxui.exe
+*.test
+*.out
+coverage.out
+
+### Frontend (frontend/) ###
+node_modules/
+frontend/dist/*
+!frontend/dist/.gitkeep
+frontend/coverage/
+frontend/.vite/
+frontend/playwright-report/
+frontend/test-results/
+frontend/blob-report/
+*.tsbuildinfo
+
+### Wails / packaging ###
+# Only the build output is ignored: build/appicon.png, build/darwin/Info.plist and
+# build/windows/* are project inputs that `wails build` copies into the bundle.
+build/bin/
+/dist/
+*.dmg
+*.p12
+*.pfx
+
+### macOS ###
+.DS_Store
+
+### Local sing-box configuration (never commit: contains UUIDs, reality keys, passwords) ###
+/config.json
+/config.backup.json
+/config.with-ipv6-fix.json
+config.local.json
+ui-settings.json
+
+### Prototype build artifacts (the Java release archives are gone; keep the pattern dead) ###
+singbox-ui-*.zip
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### VS Code ###
+.vscode/

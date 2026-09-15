@@ -1,0 +1,20 @@
+# Frontend build output and local caches.
+node_modules/
+dist/*
+!dist/.gitkeep
+coverage/
+.vite/
+
+# Test artifacts.
+playwright-report/
+test-results/
+blob-report/
+
+# Generated Wails bindings: committed on purpose. The frontend imports them, so a
+# fresh clone must typecheck without running Go tooling first; CI regenerates them
+# and fails when the committed copy is stale (see .github/workflows/ci.yml).
+
+# Editor / OS noise.
+.DS_Store
+*.local
+*.tsbuildinfo
